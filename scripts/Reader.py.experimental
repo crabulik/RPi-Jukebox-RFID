@@ -52,7 +52,7 @@ class UsbReader(object):
 class Mfrc522Reader(object):
     def __init__(self):
         import pirc522
-        self.device = pirc522.RFID()
+        self.device = pirc522.RFID(pin_irq=22)
         path = os.path.dirname(os.path.realpath(__file__))
         readmode_uid = False
         if os.path.isfile(path + '/../settings/Rfidreader_Rc522_Readmode_UID'):

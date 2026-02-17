@@ -1,0 +1,15 @@
+[Unit]
+Description=Phoniebox E-Ink Display Service
+After=network.target phoniebox-rfid-reader.service
+
+[Service]
+Type=simple
+User=pi
+Group=pi
+WorkingDirectory=/home/pi/RPi-Jukebox-RFID/components/displays/e-ink-waveshare-2in13/
+ExecStart=/usr/bin/python3 /home/pi/RPi-Jukebox-RFID/components/displays/e-ink-waveshare-2in13/eink_display.py
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
