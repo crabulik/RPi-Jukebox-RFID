@@ -2,17 +2,17 @@
 # One-line install script for the Jukebox Version 3
 #
 # To install, simply execute
-# cd; bash <(wget -qO- https://raw.githubusercontent.com/MiczFlor/RPi-Jukebox-RFID/future3/develop/installation/install-jukebox.sh)
+# cd; bash <(wget -qO- https://raw.githubusercontent.com/crabulik/RPi-Jukebox-RFID/orest3/installation/install-jukebox.sh)
 #
 # If you want to get a specific branch or a different repository (mainly for developers)
 # you may specify them like this
-# cd; GIT_USER='MiczFlor' GIT_BRANCH='future3/develop' bash <(wget -qO- https://raw.githubusercontent.com/MiczFlor/RPi-Jukebox-RFID/future3/develop/installation/install-jukebox.sh)
+# cd; GIT_USER='crabulik' GIT_BRANCH='orest3' bash <(wget -qO- https://raw.githubusercontent.com/crabulik/RPi-Jukebox-RFID/orest3/installation/install-jukebox.sh)
 #
 export LC_ALL=C
 
 # Set Repo variables if not specified when calling the script
-GIT_USER=${GIT_USER:-"MiczFlor"}
-GIT_BRANCH=${GIT_BRANCH:-"future3/main"}
+GIT_USER=${GIT_USER:-"crabulik"}
+GIT_BRANCH=${GIT_BRANCH:-"orest3"}
 
 # Constants
 GIT_REPO_NAME="RPi-Jukebox-RFID"
