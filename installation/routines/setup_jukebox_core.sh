@@ -125,15 +125,8 @@ _jukebox_core_register_as_service() {
   sudo sed -i "s|%%INSTALLATION_PATH%%|${INSTALLATION_PATH}|g" "${JUKEBOX_SERVICE_NAME}"
   sudo chmod 644 "${JUKEBOX_SERVICE_NAME}"
 
-  # E-Ink splash service (non-fatal if display is not present)
-  local eink_splash_service="${SYSTEMD_USR_PATH}/eink-splash.service"
-  sudo cp -f "${INSTALLATION_PATH}/resources/default-services/eink-splash.service" "${eink_splash_service}"
-  sudo sed -i "s|%%INSTALLATION_PATH%%|${INSTALLATION_PATH}|g" "${eink_splash_service}"
-  sudo chmod 644 "${eink_splash_service}"
-
   systemctl --user daemon-reload
   systemctl --user enable jukebox-daemon.service
-  systemctl --user enable eink-splash.service
 }
 
 _jukebox_core_check() {
