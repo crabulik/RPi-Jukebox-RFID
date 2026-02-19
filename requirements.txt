@@ -41,3 +41,7 @@ pydoc-markdown
 
 # MQTT
 paho-mqtt
+
+# E-Ink display
+Pillow
+waveshare-epaper

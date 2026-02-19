@@ -47,9 +47,10 @@ def _render_status(epd, state: str, title: str, artist: str) -> None:
     """
     from PIL import Image, ImageDraw, ImageFont
 
-    # The display is mounted rotated 90°, so draw in landscape (250×122) then rotate.
-    # epd.width=250, epd.height=122 — draw canvas matches driver's native landscape dims.
-    draw_w, draw_h = epd.width, epd.height
+    # epd.width=122, epd.height=250 (portrait panel native).
+    # Draw in landscape (250×122): use (epd.height, epd.width) as canvas size.
+    # getbuffer() detects the landscape dims and auto-rotates 90° internally.
+    draw_w, draw_h = epd.height, epd.width
     image = Image.new('1', (draw_w, draw_h), 255)  # 255 = white background
     draw = ImageDraw.Draw(image)
 
@@ -82,8 +83,7 @@ def _render_status(epd, state: str, title: str, artist: str) -> None:
         artist_text = artist_text[:29] + '...'
     draw.text((4, 52), artist_text, font=font_small, fill=0)
 
-    # Rotate 90° clockwise to correct for the physical 90° mounting of the display
-    image = image.rotate(-90, expand=True)
+    # getbuffer() detects (250×122) landscape and handles rotation internally
     epd.display(epd.getbuffer(image))
 
 
@@ -96,7 +96,7 @@ def _render_message(epd, line1: str, line2: str = '') -> None:
     """
     from PIL import Image, ImageDraw, ImageFont
 
-    draw_w, draw_h = epd.width, epd.height
+    draw_w, draw_h = epd.height, epd.width  # landscape: 250×122
     image = Image.new('1', (draw_w, draw_h), 255)
     draw = ImageDraw.Draw(image)
 
@@ -111,8 +111,7 @@ def _render_message(epd, line1: str, line2: str = '') -> None:
     if line2:
         draw.text((4, 60), line2, font=font2, fill=0)
 
-    # Rotate 90° clockwise to correct for the physical 90° mounting of the display
-    image = image.rotate(-90, expand=True)
+    # getbuffer() detects (250×122) landscape and handles rotation internally
     epd.display(epd.getbuffer(image))
 
 
