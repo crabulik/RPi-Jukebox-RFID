@@ -61,9 +61,9 @@ _enabled: bool = False
 # Each entry has: play, pause, stop state labels and boot/shutdown messages.
 _STRINGS = {
     'en': {
-        'play':      '> Playing',
-        'pause':     '|| Paused',
-        'stop':      '[] Stopped',
+        'play':      '▶ Playing',
+        'pause':     '❚❚ Paused',
+        'stop':      '■ Stopped',
         'boot1':     'Jukebox',
         'boot2':     'starting...',
         'shutdown1': 'Shutting',
@@ -71,9 +71,9 @@ _STRINGS = {
         'no_title':  '---',
     },
     'uk': {
-        'play':      '> Грає',
-        'pause':     '|| Пауза',
-        'stop':      '[] Зупинено',
+        'play':      '▶ Грає',
+        'pause':     '❚❚ Пауза',
+        'stop':      '■ Зупинено',
         'boot1':     'Джукбокс',
         'boot2':     'запуск...',
         'shutdown1': 'Вимкнення',
