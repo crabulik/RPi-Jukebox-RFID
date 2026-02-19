@@ -36,12 +36,19 @@ Ukrainian locale requires a Cyrillic-capable font. Recommended:
 
 import glob
 import logging
+import os
 import sys
 import threading
 
 import jukebox.cfghandler
 import jukebox.plugs as plugs
 import jukebox.publishing.subscriber
+
+# Paths to bunny images relative to the repo root (resolved at runtime)
+_IMG_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                        '..', '..', '..', '..', 'img')
+_IMG_SLEEP   = os.path.join(_IMG_DIR, 'Sleep.jpeg')
+_IMG_GOODBYE = os.path.join(_IMG_DIR, 'GoodBye.jpeg')
 
 logger = logging.getLogger('jb.eink')
 cfg = jukebox.cfghandler.get_handler('jukebox')
@@ -58,27 +65,19 @@ _enabled: bool = False
 # ---------------------------------------------------------------------------
 
 # Translations keyed by locale code.
-# Each entry has: play, pause, stop state labels and boot/shutdown messages.
+# Each entry has: play/pause/stop state labels and the no_title fallback.
 _STRINGS = {
     'en': {
-        'play':      'Playing',
-        'pause':     'Paused',
-        'stop':      'Stopped',
-        'boot1':     'Jukebox',
-        'boot2':     'starting...',
-        'shutdown1': 'Shutting',
-        'shutdown2': 'down...',
-        'no_title':  '---',
+        'play':     'Playing',
+        'pause':    'Paused',
+        'stop':     'Stopped',
+        'no_title': '---',
     },
     'uk': {
-        'play':      'Грає',
-        'pause':     'Пауза',
-        'stop':      'Зупинено',
-        'boot1':     'Джукбокс',
-        'boot2':     'запуск...',
-        'shutdown1': 'Вимкнення',
-        'shutdown2': '',
-        'no_title':  '---',
+        'play':     'Грає',
+        'pause':    'Пауза',
+        'stop':     'Зупинено',
+        'no_title': '---',
     },
 }
 
@@ -225,28 +224,42 @@ def _build_status_image(epd, state: str, title: str, artist: str):
     return image
 
 
-def _build_message_image(epd, line1: str, line2: str = ''):
-    """Build and return a PIL Image for a simple one- or two-line message.
 
-    :param epd: Initialised EPD driver instance (used for dimensions only)
-    :param line1: First line of text
-    :param line2: Optional second line of text
+# ---------------------------------------------------------------------------
+# Bunny image loader
+# ---------------------------------------------------------------------------
+
+def _build_bunny_image(epd, image_path: str):
+    """Load a bunny JPEG, convert to 1-bit, and centre it on the landscape canvas.
+
+    The source images are 122px tall (matching epd.width) but narrower than
+    250px, so they are centred horizontally with white padding on each side.
+    Falls back to _build_message_image if the file cannot be opened.
+
+    :param epd: Initialised EPD driver instance (used for dimensions)
+    :param image_path: Absolute path to the JPEG file
     :returns: PIL Image in landscape orientation (250×122)
     """
-    from PIL import Image, ImageDraw
+    from PIL import Image
 
     draw_w, draw_h = epd.height, epd.width  # landscape: 250×122
-    image = Image.new('1', (draw_w, draw_h), 255)
-    draw = ImageDraw.Draw(image)
+    canvas = Image.new('1', (draw_w, draw_h), 1)  # white background
 
-    font = _load_font(bold=True, size=18)
-    font2 = _load_font(bold=False, size=14)
+    try:
+        src = Image.open(image_path).convert('1')
+        sw, sh = src.size
+        # Scale to fit height if needed, preserving aspect ratio
+        if sh != draw_h:
+            scale = draw_h / sh
+            sw, sh = int(sw * scale), draw_h
+            src = src.resize((sw, sh), Image.LANCZOS)
+        # Centre horizontally
+        x_off = (draw_w - sw) // 2
+        canvas.paste(src, (x_off, 0))
+    except Exception as e:
+        logger.warning(f'Could not load bunny image {image_path!r}: {e}')
 
-    draw.text((4, 30), line1, font=font, fill=0)
-    if line2:
-        draw.text((4, 60), line2, font=font2, fill=0)
-
-    return image
+    return canvas
 
 
 # ---------------------------------------------------------------------------
@@ -435,10 +448,9 @@ def initialize() -> None:
         epd.init()
         epd.Clear()
 
-        # Show boot message using a full refresh; seed the base image so the
+        # Show sleeping bunny during boot; seed the base image so the
         # display thread can start with partial refreshes immediately.
-        s = _strings()
-        boot_image = _build_message_image(epd, s['boot1'], s['boot2'])
+        boot_image = _build_bunny_image(epd, _IMG_SLEEP)
         buf = epd.getbuffer(boot_image)
         epd.display(buf)
         epd.displayPartBaseImage(buf)
@@ -482,11 +494,10 @@ def atexit(**ignored_kwargs):
     epd = globals().get('_epd')
     if epd is not None:
         try:
-            s = _strings()
-            shutdown_image = _build_message_image(epd, s['shutdown1'], s['shutdown2'])
+            goodbye_image = _build_bunny_image(epd, _IMG_GOODBYE)
             # Full refresh for shutdown — display may have been sleeping
             epd.init()
-            epd.display(epd.getbuffer(shutdown_image))
+            epd.display(epd.getbuffer(goodbye_image))
             epd.sleep()
         except Exception as e:
             logger.error(f'E-Ink atexit render error: {e.__class__.__name__}: {e}')

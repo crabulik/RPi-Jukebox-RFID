@@ -11,6 +11,8 @@ Requires=mpd.service pulseaudio.service
 
 [Service]
 WorkingDirectory=%%INSTALLATION_PATH%%
+# Show e-ink splash image before the daemon starts (non-fatal if display absent)
+ExecStartPre=-/bin/bash -c '%%INSTALLATION_PATH%%/.venv/bin/python3 %%INSTALLATION_PATH%%/src/jukebox/components/eink_display/show_splash.py'
 ExecStart=/bin/bash -c '%%INSTALLATION_PATH%%/run_jukebox.sh'
 StandardOutput=inherit
 StandardError=inherit
