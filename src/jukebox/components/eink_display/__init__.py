@@ -61,9 +61,9 @@ _enabled: bool = False
 # Each entry has: play, pause, stop state labels and boot/shutdown messages.
 _STRINGS = {
     'en': {
-        'play':      '▶ Playing',
-        'pause':     '❚❚ Paused',
-        'stop':      '■ Stopped',
+        'play':      'Playing',
+        'pause':     'Paused',
+        'stop':      'Stopped',
         'boot1':     'Jukebox',
         'boot2':     'starting...',
         'shutdown1': 'Shutting',
@@ -71,9 +71,9 @@ _STRINGS = {
         'no_title':  '---',
     },
     'uk': {
-        'play':      '▶ Грає',
-        'pause':     '❚❚ Пауза',
-        'stop':      '■ Зупинено',
+        'play':      'Грає',
+        'pause':     'Пауза',
+        'stop':      'Зупинено',
         'boot1':     'Джукбокс',
         'boot2':     'запуск...',
         'shutdown1': 'Вимкнення',
@@ -127,6 +127,38 @@ def _load_font(bold: bool, size: int):
 
 
 # ---------------------------------------------------------------------------
+# Icon drawing
+# ---------------------------------------------------------------------------
+
+def _draw_state_icon(draw, state: str, x: int, y: int, size: int = 16) -> int:
+    """Draw a play/pause/stop icon using PIL primitives at position (x, y).
+
+    No font required — shapes are drawn directly so any font will work.
+
+    :param draw: ImageDraw instance
+    :param state: 'play', 'pause', or 'stop'
+    :param x: Left edge of the icon bounding box
+    :param y: Top edge of the icon bounding box
+    :param size: Icon height/width in pixels (default 16)
+    :returns: x coordinate immediately after the icon (for text placement)
+    """
+    if state == 'play':
+        # Filled right-pointing triangle
+        mid_y = y + size // 2
+        draw.polygon([(x, y), (x, y + size), (x + size, mid_y)], fill=0)
+    elif state == 'pause':
+        # Two vertical filled rectangles
+        bar_w = max(3, size // 4)
+        gap = max(2, size // 4)
+        draw.rectangle([x, y, x + bar_w, y + size], fill=0)
+        draw.rectangle([x + bar_w + gap, y, x + bar_w * 2 + gap, y + size], fill=0)
+    else:
+        # Filled square for stop (and any unknown state)
+        draw.rectangle([x, y, x + size, y + size], fill=0)
+    return x + size + 5  # 5px gap between icon and text
+
+
+# ---------------------------------------------------------------------------
 # Image builders
 # ---------------------------------------------------------------------------
 
@@ -165,9 +197,11 @@ def _build_status_image(epd, state: str, title: str, artist: str):
 
     max_text_w = draw_w - 8  # 4px padding each side
 
-    # State label
+    # State icon + label — icon drawn as PIL primitives, text placed after it
+    icon_size = font_status.size if hasattr(font_status, 'size') else 18
+    text_x = _draw_state_icon(draw, state, x=4, y=2, size=icon_size)
     state_text = s.get(state, state.capitalize())
-    draw.text((4, 2), state_text, font=font_status, fill=0)
+    draw.text((text_x, 2), state_text, font=font_status, fill=0)
 
     # Separator line
     draw.line([(0, 26), (draw_w, 26)], fill=0, width=1)
