@@ -47,9 +47,10 @@ def _render_status(epd, state: str, title: str, artist: str) -> None:
     """
     from PIL import Image, ImageDraw, ImageFont
 
-    # Landscape: width=250, height=122
-    width, height = epd.width, epd.height
-    image = Image.new('1', (width, height), 255)  # 255 = white background
+    # The display is mounted rotated 90°, so draw in landscape (250×122) then rotate.
+    # epd.width=250, epd.height=122 — draw canvas matches driver's native landscape dims.
+    draw_w, draw_h = epd.width, epd.height
+    image = Image.new('1', (draw_w, draw_h), 255)  # 255 = white background
     draw = ImageDraw.Draw(image)
 
     try:
@@ -67,7 +68,7 @@ def _render_status(epd, state: str, title: str, artist: str) -> None:
     draw.text((4, 4), state_text, font=font_status, fill=0)
 
     # Separator line
-    draw.line([(0, 24), (width, 24)], fill=0, width=1)
+    draw.line([(0, 24), (draw_w, 24)], fill=0, width=1)
 
     # Title — truncate if too long
     title_text = title if title else '---'
@@ -81,6 +82,8 @@ def _render_status(epd, state: str, title: str, artist: str) -> None:
         artist_text = artist_text[:29] + '...'
     draw.text((4, 52), artist_text, font=font_small, fill=0)
 
+    # Rotate 90° clockwise to correct for the physical 90° mounting of the display
+    image = image.rotate(-90, expand=True)
     epd.display(epd.getbuffer(image))
 
 
@@ -93,8 +96,8 @@ def _render_message(epd, line1: str, line2: str = '') -> None:
     """
     from PIL import Image, ImageDraw, ImageFont
 
-    width, height = epd.width, epd.height
-    image = Image.new('1', (width, height), 255)
+    draw_w, draw_h = epd.width, epd.height
+    image = Image.new('1', (draw_w, draw_h), 255)
     draw = ImageDraw.Draw(image)
 
     try:
@@ -108,6 +111,8 @@ def _render_message(epd, line1: str, line2: str = '') -> None:
     if line2:
         draw.text((4, 60), line2, font=font2, fill=0)
 
+    # Rotate 90° clockwise to correct for the physical 90° mounting of the display
+    image = image.rotate(-90, expand=True)
     epd.display(epd.getbuffer(image))
 
 
