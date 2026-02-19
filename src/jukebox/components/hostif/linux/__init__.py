@@ -365,6 +365,51 @@ def get_throttled():
 
 
 # ---------------------------------------------------------------------------
+# Network control
+# ---------------------------------------------------------------------------
+
+@plugin.register
+def toggle_wifi():
+    """Toggle the Wi-Fi radio on or off using nmcli.
+
+    Reads the current state via ``nmcli radio wifi`` and flips it.
+    Returns a string describing the new state, or an error message.
+
+    Can be triggered via RPC or mapped to an RFID card::
+
+        ./tools/run_rpc_tool.sh -c host.toggle_wifi
+    """
+    ret = subprocess.run(['nmcli', 'radio', 'wifi'],
+                         stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                         check=False, stdin=subprocess.DEVNULL)
+    if ret.returncode != 0:
+        msg = f"toggle_wifi: failed to read Wi-Fi state: {ret.stdout.decode().strip()}"
+        logger.error(msg)
+        return msg
+
+    current_state = ret.stdout.decode().strip()
+    logger.debug(f"toggle_wifi: current state is '{current_state}'")
+
+    if current_state == 'enabled':
+        action = 'off'
+        new_state = 'disabled'
+    else:
+        action = 'on'
+        new_state = 'enabled'
+
+    ret = subprocess.run(['nmcli', 'radio', 'wifi', action],
+                         stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                         check=False, stdin=subprocess.DEVNULL)
+    if ret.returncode != 0:
+        msg = f"toggle_wifi: failed to turn Wi-Fi {action}: {ret.stdout.decode().strip()}"
+        logger.error(msg)
+        return msg
+
+    logger.info(f"toggle_wifi: Wi-Fi {new_state}")
+    return f"WiFi {new_state}"
+
+
+# ---------------------------------------------------------------------------
 # Playback
 # ---------------------------------------------------------------------------
 @plugin.register
