@@ -47,7 +47,7 @@ import jukebox.publishing.subscriber
 # Paths to bunny images relative to the repo root (resolved at runtime)
 _IMG_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                         '..', '..', '..', '..', 'img')
-_IMG_SLEEP   = os.path.join(_IMG_DIR, 'Sleep.jpeg')
+_IMG_SLEEP   = os.path.join(_IMG_DIR, 'Dancing.jpeg')
 _IMG_GOODBYE = os.path.join(_IMG_DIR, 'GoodBye.jpeg')
 
 logger = logging.getLogger('jb.eink')

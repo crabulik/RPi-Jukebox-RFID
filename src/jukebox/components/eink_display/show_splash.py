@@ -26,7 +26,7 @@ logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
 logger = logging.getLogger('eink.splash')
 
 _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-_DEFAULT_IMAGE = os.path.join(_SCRIPT_DIR, '..', '..', '..', '..', 'img', 'Dancing.jpeg')
+_DEFAULT_IMAGE = os.path.join(_SCRIPT_DIR, '..', '..', '..', '..', 'img', 'Sleep.jpeg')
 
 
 def _ensure_waveshare_on_path() -> None:
