@@ -500,6 +500,104 @@ nmcli radio wifi
 
 ---
 
+## Step 9: Status Bar — Wi-Fi and Bluetooth Icons
+
+Add a persistent status bar in the top-right corner of the web app showing connectivity icons. An icon is shown only when the corresponding interface is active; it disappears otherwise.
+
+- **Wi-Fi icon**: visible when Wi-Fi radio is enabled (`nmcli radio wifi` = `enabled`)
+- **Bluetooth icon**: visible when at least one Bluetooth device is connected (`bluetoothctl info` returns `Connected: yes`)
+
+### 9a: Backend — publish connectivity state
+
+Add a periodic publisher to `src/jukebox/components/hostif/linux/__init__.py` that emits a `host.connectivity` ZMQ topic on a timer (every 10 seconds), following the existing `publish_cpu_temperature` / `GenericEndlessTimerClass` pattern.
+
+```python
+@plugin.register
+def get_connectivity_status():
+    """Return Wi-Fi and Bluetooth connectivity state as a dict."""
+    # Wi-Fi: nmcli radio wifi → 'enabled' or 'disabled'
+    wifi_ret = subprocess.run(
+        ['nmcli', 'radio', 'wifi'],
+        stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+        check=False, stdin=subprocess.DEVNULL,
+    )
+    wifi_on = wifi_ret.returncode == 0 and wifi_ret.stdout.decode().strip() == 'enabled'
+
+    # Bluetooth: bluetoothctl info → contains 'Connected: yes' if any device connected
+    bt_ret = subprocess.run(
+        ['bluetoothctl', 'info'],
+        stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+        check=False, stdin=subprocess.DEVNULL,
+    )
+    bt_connected = bt_ret.returncode == 0 and 'Connected: yes' in bt_ret.stdout.decode()
+
+    return {'wifi': wifi_on, 'bluetooth': bt_connected}
+
+
+@plugin.register
+def publish_connectivity_status():
+    status = get_connectivity_status()
+    jukebox.publishing.get_publisher().send('host.connectivity', status)
+```
+
+Wire `publish_connectivity_status` into `finalize()` as a `GenericEndlessTimerClass` (interval: 10 s), following the exact same pattern as `timer_temperature`. Register and cancel it in `atexit()` too.
+
+### 9b: Frontend — connectivity context
+
+Create `src/webapp/src/context/connectivity/index.js` — a React context that subscribes to the `host.connectivity` ZMQ PubSub topic using the existing `PubSubProvider`/socket pattern and exposes `{ wifi, bluetooth }` booleans. Default both to `false` until first message arrives.
+
+Wrap `<ConnectivityProvider>` in `App.js` alongside the existing providers.
+
+### 9c: Frontend — StatusBar component
+
+Create `src/webapp/src/components/StatusBar/index.js`:
+
+- Fixed position top-right, `zIndex` above content (≥ 1200)
+- Uses `WifiIcon` and `BluetoothIcon` from `@mui/icons-material`
+- Renders each icon **only** when the corresponding boolean is `true`
+- Small, muted icons (`fontSize="small"`, `color="action"`) so they don't compete with content
+
+```jsx
+import WifiIcon from '@mui/icons-material/Wifi';
+import BluetoothIcon from '@mui/icons-material/Bluetooth';
+import Box from '@mui/material/Box';
+import { useContext } from 'react';
+import ConnectivityContext from '../../context/connectivity';
+
+const StatusBar = () => {
+  const { wifi, bluetooth } = useContext(ConnectivityContext);
+  return (
+    <Box sx={{ position: 'fixed', top: 8, right: 12, display: 'flex', gap: 0.5, zIndex: 1200 }}>
+      {wifi && <WifiIcon fontSize="small" color="action" />}
+      {bluetooth && <BluetoothIcon fontSize="small" color="action" />}
+    </Box>
+  );
+};
+```
+
+Mount `<StatusBar />` once in `router.js` outside the `<Routes>` block, alongside `<Navigation />`.
+
+### Test
+
+```bash
+# Verify backend publishes:
+./tools/run_publicity_sniffer.sh
+# Should see 'host.connectivity' messages every ~10 s
+
+# Verify via RPC:
+./tools/run_rpc_tool.sh -c host.get_connectivity_status
+# → {"wifi": true, "bluetooth": true}  (or false depending on state)
+
+# UI checks:
+# 1. Open web app — icons appear top-right matching current state
+# 2. Toggle Wi-Fi off (RPC or RFID card) — Wi-Fi icon disappears within 10 s
+# 3. Disconnect Bluetooth speaker — Bluetooth icon disappears within 10 s
+```
+
+**Expected result:** Top-right corner shows Wi-Fi and/or Bluetooth icons reflecting live connectivity state. Icons disappear when the interface is inactive.
+
+---
+
 ## Summary
 
 | Step | What | Custom Code? | Testable Independently? |
@@ -514,7 +612,8 @@ nmcli radio wifi
 | 7 | E-Ink display plugin | **Yes — new plugin** | Yes |
 | 8a | play_random_folder (Stop long press) | **Yes — new RPC function** | Yes |
 | 8b | Wi-Fi toggle card | **Yes — new RPC function** | Yes |
+| 9 | Status bar (Wi-Fi + BT icons) | **Yes — backend + frontend** | Yes |
 
 Steps 1–6 use existing project functionality (configuration only).
-Steps 7 and 8 require writing new code.
+Steps 7, 8, and 9 require writing new code.
 Pin conflicts are resolved upfront in the wiring plan (see WIRING.md).

@@ -6,6 +6,17 @@ The panel is natively portrait (epd.width=122, epd.height=250). Images are creat
 as landscape (250x122) and the driver's getbuffer() handles the rotation internally.
 Subscribes to ZMQ 'playerstatus' topic and updates the display on every state change.
 
+Refresh strategy
+----------------
+- First render after startup: full init + displayPartBaseImage + displayPartial
+  (seeds both old/new RAM buffers so the controller knows what changed)
+- Subsequent state/title/artist changes: displayPartial only
+  (fast, flicker-free — only changed pixels are driven)
+- Every FULL_REFRESH_INTERVAL updates: full init + display + re-seed base image
+  (prevents ghosting buildup on the panel)
+- Display stays awake between updates; sleep() is called only on long inactivity
+  or shutdown.
+
 Hardware: Waveshare 2.13inch e-Paper HAT (V4), connected via SPI0 on default pins:
   BUSY=GPIO24, RST=GPIO17, DC=GPIO25, CS=GPIO8(CE0), CLK=GPIO11, DIN=GPIO10
 
@@ -35,6 +46,9 @@ import jukebox.publishing.subscriber
 logger = logging.getLogger('jb.eink')
 cfg = jukebox.cfghandler.get_handler('jukebox')
 
+# How many partial refreshes before forcing a full refresh to clear ghosting.
+FULL_REFRESH_INTERVAL = 20
+
 # Module-level state
 _display_thread: 'DisplayThread | None' = None
 _enabled: bool = False
@@ -47,24 +61,24 @@ _enabled: bool = False
 # Each entry has: play, pause, stop state labels and boot/shutdown messages.
 _STRINGS = {
     'en': {
-        'play':     '> Playing',
-        'pause':    '|| Paused',
-        'stop':     '[] Stopped',
-        'boot1':    'Jukebox',
-        'boot2':    'starting...',
+        'play':      '> Playing',
+        'pause':     '|| Paused',
+        'stop':      '[] Stopped',
+        'boot1':     'Jukebox',
+        'boot2':     'starting...',
         'shutdown1': 'Shutting',
         'shutdown2': 'down...',
-        'no_title': '---',
+        'no_title':  '---',
     },
     'uk': {
-        'play':     '> Грає',
-        'pause':    '|| Пауза',
-        'stop':     '[] Зупинено',
-        'boot1':    'Джукбокс',
-        'boot2':    'запуск...',
+        'play':      '> Грає',
+        'pause':     '|| Пауза',
+        'stop':      '[] Зупинено',
+        'boot1':     'Джукбокс',
+        'boot2':     'запуск...',
         'shutdown1': 'Вимкнення',
         'shutdown2': '',
-        'no_title': '---',
+        'no_title':  '---',
     },
 }
 
@@ -113,16 +127,20 @@ def _load_font(bold: bool, size: int):
 
 
 # ---------------------------------------------------------------------------
-# Rendering helpers
+# Image builders
 # ---------------------------------------------------------------------------
 
-def _render_status(epd, state: str, title: str, artist: str) -> None:
-    """Draw current player status onto the e-ink display.
+def _build_status_image(epd, state: str, title: str, artist: str):
+    """Build and return a PIL Image for the current player status.
 
-    :param epd: Initialised EPD driver instance
+    Does not touch the display — callers decide whether to do a full or
+    partial refresh.
+
+    :param epd: Initialised EPD driver instance (used for dimensions only)
     :param state: MPD state string: 'play', 'pause', or 'stop'
     :param title: Current track title (may be empty string)
     :param artist: Current track artist (may be empty string)
+    :returns: PIL Image in landscape orientation (250×122)
     """
     from PIL import Image, ImageDraw
 
@@ -158,16 +176,16 @@ def _render_status(epd, state: str, title: str, artist: str) -> None:
         artist_text = artist_text[:29] + '...'
     draw.text((4, 52), artist_text, font=font_small, fill=0)
 
-    # getbuffer() detects (250×122) landscape and handles rotation internally
-    epd.display(epd.getbuffer(image))
+    return image
 
 
-def _render_message(epd, line1: str, line2: str = '') -> None:
-    """Render a simple one- or two-line text message on the display.
+def _build_message_image(epd, line1: str, line2: str = ''):
+    """Build and return a PIL Image for a simple one- or two-line message.
 
-    :param epd: Initialised EPD driver instance
+    :param epd: Initialised EPD driver instance (used for dimensions only)
     :param line1: First line of text
     :param line2: Optional second line of text
+    :returns: PIL Image in landscape orientation (250×122)
     """
     from PIL import Image, ImageDraw
 
@@ -182,8 +200,39 @@ def _render_message(epd, line1: str, line2: str = '') -> None:
     if line2:
         draw.text((4, 60), line2, font=font2, fill=0)
 
-    # getbuffer() detects (250×122) landscape and handles rotation internally
-    epd.display(epd.getbuffer(image))
+    return image
+
+
+# ---------------------------------------------------------------------------
+# Display helpers
+# ---------------------------------------------------------------------------
+
+def _full_refresh(epd, image) -> None:
+    """Full-panel refresh: init → display → seed both RAM buffers for partial.
+
+    Use for the first render and every FULL_REFRESH_INTERVAL updates.
+    Leaves the display awake and ready for subsequent partial refreshes.
+
+    :param epd: Initialised EPD driver instance
+    :param image: PIL Image in landscape orientation (250×122)
+    """
+    buf = epd.getbuffer(image)
+    epd.init()
+    epd.display(buf)
+    # Seed the "old frame" buffer so displayPartial can diff against it
+    epd.displayPartBaseImage(buf)
+
+
+def _partial_refresh(epd, image) -> None:
+    """Partial refresh: only drives pixels that changed since last base image.
+
+    Fast and flicker-free. Display must have been seeded with displayPartBaseImage
+    at least once before calling this.
+
+    :param epd: Initialised EPD driver instance
+    :param image: PIL Image in landscape orientation (250×122)
+    """
+    epd.displayPartial(epd.getbuffer(image))
 
 
 # ---------------------------------------------------------------------------
@@ -191,7 +240,14 @@ def _render_message(epd, line1: str, line2: str = '') -> None:
 # ---------------------------------------------------------------------------
 
 class DisplayThread(threading.Thread):
-    """Background thread that subscribes to 'playerstatus' and updates the display."""
+    """Background thread that subscribes to 'playerstatus' and updates the display.
+
+    Refresh strategy:
+    - First render: full refresh (init + display + seed base image)
+    - Subsequent renders: partial refresh (fast, flicker-free)
+    - Every FULL_REFRESH_INTERVAL renders: forced full refresh to clear ghosting
+    - Display stays awake between updates
+    """
 
     def __init__(self, epd):
         super().__init__(name='EinkDisplay', daemon=True)
@@ -200,6 +256,7 @@ class DisplayThread(threading.Thread):
         self._last_state = ''
         self._last_title = ''
         self._last_artist = ''
+        self._render_count = 0  # tracks when to force a full refresh
 
     def run(self) -> None:
         logger.info('E-Ink display thread started')
@@ -215,25 +272,44 @@ class DisplayThread(threading.Thread):
                     state = payload.get('state', 'stop')
                     title = payload.get('title', '')
                     artist = payload.get('artist', '')
-                    # Only redraw if something actually changed — e-ink refreshes are slow
-                    if state != self._last_state or title != self._last_title or artist != self._last_artist:
+                    # Only redraw if something actually changed
+                    if (state != self._last_state
+                            or title != self._last_title
+                            or artist != self._last_artist):
                         self._last_state = state
                         self._last_title = title
                         self._last_artist = artist
-                        logger.debug(f'E-Ink update: state={state} title={title!r} artist={artist!r}')
-                        try:
-                            self._epd.init()
-                            _render_status(self._epd, state, title, artist)
-                            self._epd.sleep()
-                        except Exception as e:
-                            logger.error(f'E-Ink render error: {e.__class__.__name__}: {e}')
+                        logger.debug(
+                            f'E-Ink update: state={state} title={title!r} artist={artist!r}'
+                        )
+                        self._render(state, title, artist)
             except Exception as e:
                 if self._keep_running:
                     logger.error(f'E-Ink subscriber error: {e.__class__.__name__}: {e}')
         logger.info('E-Ink display thread stopped')
 
+    def _render(self, state: str, title: str, artist: str) -> None:
+        """Render one frame, choosing full or partial refresh as appropriate."""
+        try:
+            image = _build_status_image(self._epd, state, title, artist)
+            use_full = (self._render_count % FULL_REFRESH_INTERVAL == 0)
+            if use_full:
+                logger.debug(f'E-Ink full refresh (count={self._render_count})')
+                _full_refresh(self._epd, image)
+            else:
+                logger.debug(f'E-Ink partial refresh (count={self._render_count})')
+                _partial_refresh(self._epd, image)
+            self._render_count += 1
+        except Exception as e:
+            logger.error(f'E-Ink render error: {e.__class__.__name__}: {e}')
+
     def stop(self) -> None:
         self._keep_running = False
+        # Put the display to sleep when the thread is stopping
+        try:
+            self._epd.sleep()
+        except Exception as e:
+            logger.error(f'E-Ink sleep error: {e.__class__.__name__}: {e}')
 
 
 # ---------------------------------------------------------------------------
@@ -303,11 +379,8 @@ def initialize() -> None:
     logger.info(f'E-Ink display locale: {_locale}')
 
     try:
-        # The waveshare-epaper PyPI package installs the library in a nested path
-        # that is not automatically on sys.path. Find and add it dynamically.
         _ensure_waveshare_on_path()
 
-        # Try driver versions from newest to oldest — import whichever exists
         epd_module = _import_epd_driver()
         if epd_module is None:
             raise ImportError('No compatible epd2in13 driver found (tried V4, V3, V2)')
@@ -315,9 +388,15 @@ def initialize() -> None:
         epd = epd_module.EPD()
         epd.init()
         epd.Clear()
+
+        # Show boot message using a full refresh; seed the base image so the
+        # display thread can start with partial refreshes immediately.
         s = _strings()
-        _render_message(epd, s['boot1'], s['boot2'])
-        epd.sleep()
+        boot_image = _build_message_image(epd, s['boot1'], s['boot2'])
+        buf = epd.getbuffer(boot_image)
+        epd.display(buf)
+        epd.displayPartBaseImage(buf)
+
         # Store on module for use by finalize / atexit
         globals()['_epd'] = epd
         logger.info('E-Ink display initialised')
@@ -357,9 +436,11 @@ def atexit(**ignored_kwargs):
     epd = globals().get('_epd')
     if epd is not None:
         try:
-            epd.init()
             s = _strings()
-            _render_message(epd, s['shutdown1'], s['shutdown2'])
+            shutdown_image = _build_message_image(epd, s['shutdown1'], s['shutdown2'])
+            # Full refresh for shutdown — display may have been sleeping
+            epd.init()
+            epd.display(epd.getbuffer(shutdown_image))
             epd.sleep()
         except Exception as e:
             logger.error(f'E-Ink atexit render error: {e.__class__.__name__}: {e}')
