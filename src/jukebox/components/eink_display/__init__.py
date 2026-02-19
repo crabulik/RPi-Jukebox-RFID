@@ -151,30 +151,42 @@ def _build_status_image(epd, state: str, title: str, artist: str):
     image = Image.new('1', (draw_w, draw_h), 255)  # 255 = white background
     draw = ImageDraw.Draw(image)
 
-    font_large = _load_font(bold=True, size=16)
-    font_small = _load_font(bold=False, size=13)
-    font_status = _load_font(bold=True, size=14)
+    font_large = _load_font(bold=True, size=24)
+    font_small = _load_font(bold=False, size=16)
+    font_status = _load_font(bold=True, size=18)
 
     s = _strings()
 
+    # Layout (landscape 250×122):
+    #   y=2   status label  (18pt, ~22px tall) → bottom ~24
+    #   y=26  separator line
+    #   y=30  title         (24pt, ~29px tall) → bottom ~59
+    #   y=64  artist        (16pt, ~20px tall) → bottom ~84
+
+    max_text_w = draw_w - 8  # 4px padding each side
+
     # State label
     state_text = s.get(state, state.capitalize())
-    draw.text((4, 4), state_text, font=font_status, fill=0)
+    draw.text((4, 2), state_text, font=font_status, fill=0)
 
     # Separator line
-    draw.line([(0, 24), (draw_w, 24)], fill=0, width=1)
+    draw.line([(0, 26), (draw_w, 26)], fill=0, width=1)
 
-    # Title — truncate if too long
+    # Title — truncate by pixel width so it fits regardless of font metrics
     title_text = title if title else s['no_title']
-    if len(title_text) > 28:
-        title_text = title_text[:25] + '...'
+    while title_text and draw.textlength(title_text, font=font_large) > max_text_w:
+        title_text = title_text[:-1]
+    if title_text != (title if title else s['no_title']):
+        title_text = title_text[:-3] + '...' if len(title_text) >= 3 else title_text
     draw.text((4, 30), title_text, font=font_large, fill=0)
 
-    # Artist
+    # Artist — same pixel-width truncation
     artist_text = artist if artist else ''
-    if len(artist_text) > 32:
-        artist_text = artist_text[:29] + '...'
-    draw.text((4, 52), artist_text, font=font_small, fill=0)
+    while artist_text and draw.textlength(artist_text, font=font_small) > max_text_w:
+        artist_text = artist_text[:-1]
+    if artist_text != artist:
+        artist_text = artist_text[:-3] + '...' if len(artist_text) >= 3 else artist_text
+    draw.text((4, 64), artist_text, font=font_small, fill=0)
 
     return image
 
