@@ -16,7 +16,9 @@ Install: pip install Pillow
          # Clone Waveshare e-Paper library and add to path, or install from PyPI if available
 """
 
+import glob
 import logging
+import sys
 import threading
 
 import jukebox.cfghandler
@@ -160,6 +162,52 @@ class DisplayThread(threading.Thread):
 
 
 # ---------------------------------------------------------------------------
+# Driver import helpers
+# ---------------------------------------------------------------------------
+
+def _ensure_waveshare_on_path() -> None:
+    """Add the waveshare_epd library directory to sys.path if not already importable.
+
+    The waveshare-epaper PyPI package installs files under a deeply nested path
+    (site-packages/epaper/e-Paper/RaspberryPi_JetsonNano/python/lib/) that is
+    not on sys.path by default. Find it via glob and add it once.
+    """
+    try:
+        import waveshare_epd  # noqa: F401 — already importable, nothing to do
+        return
+    except ImportError:
+        pass
+
+    # Search all site-packages for the waveshare_epd directory
+    for site_pkg in sys.path:
+        matches = glob.glob(f'{site_pkg}/**/waveshare_epd', recursive=True)
+        if matches:
+            parent = str(matches[0]).removesuffix('/waveshare_epd')
+            if parent not in sys.path:
+                sys.path.insert(0, parent)
+                logger.info(f'Added waveshare_epd path: {parent}')
+            return
+
+    logger.warning('waveshare_epd directory not found in any site-packages path')
+
+
+def _import_epd_driver():
+    """Import the best available epd2in13 driver, trying V4 → V3 → V2.
+
+    :returns: The imported driver module, or None if none found.
+    """
+    for version in ('epd2in13_V4', 'epd2in13_V3', 'epd2in13_V2', 'epd2in13'):
+        try:
+            import importlib
+            module = importlib.import_module(f'waveshare_epd.{version}')
+            logger.info(f'Loaded Waveshare driver: waveshare_epd.{version}')
+            return module
+        except ImportError:
+            continue
+    return None
+
+
+# ---------------------------------------------------------------------------
 # Plugin lifecycle
 # ---------------------------------------------------------------------------
 
@@ -174,8 +222,16 @@ def initialize() -> None:
         return
 
     try:
-        from waveshare_epd import epd2in13_V4
-        epd = epd2in13_V4.EPD()
+        # The waveshare-epaper PyPI package installs the library in a nested path
+        # that is not automatically on sys.path. Find and add it dynamically.
+        _ensure_waveshare_on_path()
+
+        # Try driver versions from newest to oldest — import whichever exists
+        epd_module = _import_epd_driver()
+        if epd_module is None:
+            raise ImportError('No compatible epd2in13 driver found (tried V4, V3, V2)')
+
+        epd = epd_module.EPD()
         epd.init()
         epd.Clear()
         _render_message(epd, 'Jukebox', 'starting...')
