@@ -72,19 +72,30 @@ tail -f ~/RPi-Jukebox-RFID/shared/logs/app.log
 
 ---
 
-## Step 2: Configure Audio Output (Mini-Jack)
+## Step 2: Configure Audio Output (Bluetooth Speaker)
 
-The installer sets up PulseAudio but doesn't select a specific output sink. Run the audio configuration tool to select the onboard headphone jack.
+The installer sets up PulseAudio but doesn't select a specific output sink. After pairing the Bluetooth speaker (Step 2b), set it as the default PulseAudio sink so MPD routes audio to it.
+
+```bash
+# List available sinks — run this after the BT speaker is connected
+pactl list short sinks
+```
+
+Identify the Bluetooth sink (will look like `bluez_sink.XX_XX_XX_XX_XX_XX.a2dp_sink`), then set it as default:
+
+```bash
+# Set the BT sink as default (replace with your actual sink name)
+pactl set-default-sink bluez_sink.XX_XX_XX_XX_XX_XX.a2dp_sink
+```
+
+To make this permanent across reboots, use the Jukebox audio config tool:
 
 ```bash
 cd ~/RPi-Jukebox-RFID
 ./installation/components/setup_configure_audio.sh
 ```
 
-This will:
-1. List available PulseAudio sinks
-2. Select the onboard analog output (likely `alsa_output.platform-soc_sound.stereo-fallback`)
-3. Optionally enable software EQ or mono downmix (mono recommended for a single speaker)
+Select the Bluetooth sink from the list when prompted.
 
 ### Test
 ```bash
@@ -99,7 +110,70 @@ cd ~/RPi-Jukebox-RFID
 # Or from the web UI: navigate to Library, select the folder, press play
 ```
 
-**Expected result:** Audio plays through the mini-jack speakers.
+**Expected result:** Audio plays through the Bluetooth speaker.
+
+---
+
+## Step 2b: Configure Bluetooth Audio Auto-Connect
+
+If using a Bluetooth speaker, it will not automatically reconnect after reboot by default. The `br-connection-profile-unavailable` error occurs because the system-level bluetooth service starts before PulseAudio has registered its A2DP audio profiles.
+
+### Pair and trust the device (once)
+
+```bash
+bluetoothctl
+scan on
+# wait for your device MAC to appear, then:
+pair XX:XX:XX:XX:XX:XX
+trust XX:XX:XX:XX:XX:XX
+connect XX:XX:XX:XX:XX:XX
+exit
+```
+
+### Create a boot auto-connect service
+
+```bash
+sudo nano /etc/systemd/system/bt-autoconnect.service
+```
+
+```ini
+[Unit]
+Description=Bluetooth auto-connect
+After=bluetooth.service pulseaudio.service
+Requires=bluetooth.service
+
+[Service]
+Type=oneshot
+ExecStart=/bin/bash -c 'for i in $(seq 1 10); do sleep 3; bluetoothctl connect XX:XX:XX:XX:XX:XX && break; done'
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Replace `XX:XX:XX:XX:XX:XX` with your speaker's MAC address.
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable bt-autoconnect.service
+```
+
+The service retries every 3 seconds up to 10 times (30s total), stopping as soon as the connection succeeds. The delay is necessary because PulseAudio registers A2DP profiles after the bluetooth service is up.
+
+### Test
+
+```bash
+sudo reboot
+
+# After reboot:
+systemctl status bt-autoconnect.service
+# Should show: active (exited) with no errors
+
+bluetoothctl info XX:XX:XX:XX:XX:XX
+# Should show: Connected: yes
+```
+
+**Expected result:** Bluetooth speaker connects automatically within ~10 seconds of boot with no manual intervention.
 
 ---
 
@@ -184,27 +258,39 @@ output_devices:
 
 input_devices:
   PlayPause:
-    type: Button
+    type: ShortLongPressButton
     kwargs:
       pin: 16
       pull_up: true
       bounce_time: 0.1
+      hold_time: 2.0
     actions:
-      on_press:
+      on_short_press:
         alias: toggle
+      on_long_press:
+        package: player
+        plugin: ctrl
+        method: replay_if_stopped
 
   Stop:
-    type: Button
+    type: ShortLongPressButton
     kwargs:
       pin: 26
       pull_up: true
       bounce_time: 0.1
+      hold_time: 3.0
     actions:
-      on_press:
+      on_short_press:
         package: player
         plugin: ctrl
         method: stop
+      on_long_press:
+        package: host
+        plugin: play_random_folder
 ```
+
+> **Note:** `play_random_folder` is a custom RPC function added in Step 8b.
+> `on_short_press` fires on button **release**; `on_long_press` fires immediately after holding 1 second.
 
 LED behavior:
 - **Play/Pause LED (GPIO12)**: OFF during boot → ON when jukebox is ready → flashes once on valid RFID swipe, three times on unknown card
@@ -227,9 +313,12 @@ systemctl --user restart jukebox-daemon.service
 1. Restart the service — both LEDs should turn ON once startup completes
 2. Start music playback (via RFID card or web UI)
 3. Swipe an RFID card — Play/Pause LED should flash briefly
-4. Press the play/pause button → music pauses
-5. Press play/pause again → music resumes
-6. Press the stop button → music stops
+4. Short press Play/Pause → music pauses
+5. Short press Play/Pause again → music resumes
+6. Short press Stop → music stops
+7. Short press Play/Pause after stop → nothing happens (toggle does not restart after stop)
+8. Long press Play/Pause (1s) after stop → last folder restarts from beginning
+9. Long press Stop (1s) → random folder starts playing
 
 **Expected result:** Both buttons control playback. Both LEDs light up when jukebox is ready. Play/Pause LED flashes on RFID card detection.
 
@@ -331,11 +420,40 @@ systemctl --user restart jukebox-daemon.service
 
 ---
 
-## Step 8: Implement Wi-Fi Toggle via RFID Card
+## Step 8: Custom RPC Functions in hostif
 
-The project has no built-in Wi-Fi toggle. Add a custom RPC function and map an RFID card to it.
+Two custom functions are added to `src/jukebox/components/hostif/linux/__init__.py`.
 
-### 8a: Add Wi-Fi toggle function
+### 8a: play_random_folder (already implemented)
+
+Picks a random folder from the MPD library and plays it. Used by the Stop button long press (Step 5).
+
+```python
+@plugin.register
+def play_random_folder():
+    """Pick a random folder from the music library and start playing it"""
+    all_entries = plugin.call('player', 'ctrl', 'list_all_dirs')
+    if not all_entries:
+        logger.warning('play_random_folder: no entries found in library')
+        return
+    folders = [entry['directory'] for entry in all_entries if 'directory' in entry]
+    if not folders:
+        logger.warning('play_random_folder: no folders found in library')
+        return
+    folder = random.choice(folders)
+    logger.info(f'play_random_folder: selected folder "{folder}"')
+    plugin.call('player', 'ctrl', 'play_folder', args=[folder])
+```
+
+Also requires `import random` at the top of the file.
+
+Called via gpio.yaml as:
+```yaml
+package: host
+plugin: play_random_folder
+```
+
+### 8b: Add Wi-Fi toggle function
 
 Edit `src/jukebox/components/hostif/linux/__init__.py` to add:
 
@@ -353,7 +471,7 @@ def toggle_wifi():
         return 'WiFi enabled'
 ```
 
-### 8b: Map an RFID card to the Wi-Fi toggle
+### 8c: Map an RFID card to the Wi-Fi toggle
 
 Use the RPC tool or web UI to register a specific card:
 
@@ -387,13 +505,15 @@ nmcli radio wifi
 | Step | What | Custom Code? | Testable Independently? |
 |------|------|:------------:|:-----------------------:|
 | 1 | Base installation | No | Yes |
-| 2 | Audio output config | No | Yes |
+| 2 | Audio output (Bluetooth speaker) | No | Yes |
+| 2b | Bluetooth audio auto-connect on boot | No (config only) | Yes |
 | 3 | RC522 RFID setup (remapped pins) | No | Yes |
 | 4 | Card-to-folder mapping | No | Yes |
 | 5 | Hardware buttons + LEDs | No (config only) | Yes |
 | 6 | Idle shutdown timer | No (config only) | Yes |
 | 7 | E-Ink display plugin | **Yes — new plugin** | Yes |
-| 8 | Wi-Fi toggle card | **Yes — new RPC function** | Yes |
+| 8a | play_random_folder (Stop long press) | **Yes — new RPC function** | Yes |
+| 8b | Wi-Fi toggle card | **Yes — new RPC function** | Yes |
 
 Steps 1–6 use existing project functionality (configuration only).
 Steps 7 and 8 require writing new code.

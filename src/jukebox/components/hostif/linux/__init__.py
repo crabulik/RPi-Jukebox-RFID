@@ -2,6 +2,7 @@
 # Copyright (c) See file LICENSE in project root folder
 
 import os
+import random
 import shutil
 import subprocess
 import logging
@@ -361,6 +362,25 @@ def get_throttled():
         status_string = "Not available"
 
     return status_string
+
+
+# ---------------------------------------------------------------------------
+# Playback
+# ---------------------------------------------------------------------------
+@plugin.register
+def play_random_folder():
+    """Pick a random folder from the music library and start playing it"""
+    all_entries = plugin.call('player', 'ctrl', 'list_all_dirs')
+    if not all_entries:
+        logger.warning('play_random_folder: no entries found in library')
+        return
+    folders = [entry['directory'] for entry in all_entries if 'directory' in entry]
+    if not folders:
+        logger.warning('play_random_folder: no folders found in library')
+        return
+    folder = random.choice(folders)
+    logger.info(f'play_random_folder: selected folder "{folder}"')
+    plugin.call('player', 'ctrl', 'play_folder', args=[folder])
 
 
 # ---------------------------------------------------------------------------

@@ -1,0 +1,41 @@
+pin_factory:
+  type: lgpio.LGPIOFactory
+
+output_devices:
+  PlayPauseLED:
+    type: LED
+    connect:
+      - gpio.gpioz.plugin.connectivity.register_status_led_callback
+      - gpio.gpioz.plugin.connectivity.register_rfid_callback
+    kwargs:
+      pin: 12
+
+  StopLED:
+    type: LED
+    connect:
+      - gpio.gpioz.plugin.connectivity.register_status_led_callback
+    kwargs:
+      pin: 6
+
+input_devices:
+  PlayPause:
+    type: Button
+    kwargs:
+      pin: 16
+      pull_up: true
+      bounce_time: 0.1
+    actions:
+      on_press:
+        alias: toggle
+
+  Stop:
+    type: Button
+    kwargs:
+      pin: 26
+      pull_up: true
+      bounce_time: 0.1
+    actions:
+      on_press:
+        package: player
+        plugin: ctrl
+        method: stop
