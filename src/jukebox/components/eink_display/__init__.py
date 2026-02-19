@@ -1,7 +1,9 @@
 """
 E-Ink Display Plugin for Jukebox
 
-Renders jukebox state on a Waveshare 2.13" e-ink display (250x122 pixels).
+Renders jukebox state on a Waveshare 2.13" e-ink display in landscape orientation.
+The panel is natively portrait (epd.width=122, epd.height=250). Images are created
+as landscape (250x122) and the driver's getbuffer() handles the rotation internally.
 Subscribes to ZMQ 'playerstatus' topic and updates the display on every state change.
 
 Hardware: Waveshare 2.13inch e-Paper HAT (V4), connected via SPI0 on default pins:
@@ -10,10 +12,15 @@ Hardware: Waveshare 2.13inch e-Paper HAT (V4), connected via SPI0 on default pin
 The plugin is guarded by an enable flag in jukebox.yaml:
   eink_display:
     enable: true
+    locale: en        # 'en' (default) or 'uk' for Ukrainian
+
+Supported locales: en, uk
 
 Requires: Pillow, waveshare-epaper (epd2in13_V4 driver)
-Install: pip install Pillow
-         # Clone Waveshare e-Paper library and add to path, or install from PyPI if available
+Install: pip install -r src/jukebox/components/eink_display/requirements.txt
+
+Ukrainian locale requires a Cyrillic-capable font. Recommended:
+  sudo apt install fonts-freefont-ttf
 """
 
 import glob
@@ -32,6 +39,78 @@ cfg = jukebox.cfghandler.get_handler('jukebox')
 _display_thread: 'DisplayThread | None' = None
 _enabled: bool = False
 
+# ---------------------------------------------------------------------------
+# Localization
+# ---------------------------------------------------------------------------
+
+# Translations keyed by locale code.
+# Each entry has: play, pause, stop state labels and boot/shutdown messages.
+_STRINGS = {
+    'en': {
+        'play':     '> Playing',
+        'pause':    '|| Paused',
+        'stop':     '[] Stopped',
+        'boot1':    'Jukebox',
+        'boot2':    'starting...',
+        'shutdown1': 'Shutting',
+        'shutdown2': 'down...',
+        'no_title': '---',
+    },
+    'uk': {
+        'play':     '> Грає',
+        'pause':    '|| Пауза',
+        'stop':     '[] Зупинено',
+        'boot1':    'Джукбокс',
+        'boot2':    'запуск...',
+        'shutdown1': 'Вимкнення',
+        'shutdown2': '',
+        'no_title': '---',
+    },
+}
+
+# Fonts with Cyrillic support (tried in order, first match wins)
+_CYRILLIC_FONTS = [
+    '/usr/share/fonts/truetype/freefont/FreeSans.ttf',
+    '/usr/share/fonts/truetype/freefont/FreeSansBold.ttf',
+    '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',
+    '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',
+]
+_CYRILLIC_FONTS_BOLD = [
+    '/usr/share/fonts/truetype/freefont/FreeSansBold.ttf',
+    '/usr/share/fonts/truetype/freefont/FreeSans.ttf',
+    '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',
+    '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',
+]
+
+# Module-level locale (set during initialize)
+_locale: str = 'en'
+
+
+def _strings() -> dict:
+    """Return the string table for the active locale, falling back to 'en'."""
+    return _STRINGS.get(_locale, _STRINGS['en'])
+
+
+def _load_font(bold: bool, size: int):
+    """Load the best available font for the active locale.
+
+    For 'uk' and other non-Latin locales, prefers fonts with Cyrillic coverage.
+    Falls back to PIL default font if nothing is found.
+
+    :param bold: Whether to prefer a bold variant
+    :param size: Font size in points
+    :returns: An ImageFont instance
+    """
+    from PIL import ImageFont
+
+    candidates = _CYRILLIC_FONTS_BOLD if bold else _CYRILLIC_FONTS
+    for path in candidates:
+        try:
+            return ImageFont.truetype(path, size)
+        except (IOError, OSError):
+            continue
+    return ImageFont.load_default()
+
 
 # ---------------------------------------------------------------------------
 # Rendering helpers
@@ -45,7 +124,7 @@ def _render_status(epd, state: str, title: str, artist: str) -> None:
     :param title: Current track title (may be empty string)
     :param artist: Current track artist (may be empty string)
     """
-    from PIL import Image, ImageDraw, ImageFont
+    from PIL import Image, ImageDraw
 
     # epd.width=122, epd.height=250 (portrait panel native).
     # Draw in landscape (250×122): use (epd.height, epd.width) as canvas size.
@@ -54,25 +133,21 @@ def _render_status(epd, state: str, title: str, artist: str) -> None:
     image = Image.new('1', (draw_w, draw_h), 255)  # 255 = white background
     draw = ImageDraw.Draw(image)
 
-    try:
-        font_large = ImageFont.truetype('/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf', 16)
-        font_small = ImageFont.truetype('/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf', 13)
-        font_status = ImageFont.truetype('/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf', 14)
-    except IOError:
-        font_large = ImageFont.load_default()
-        font_small = ImageFont.load_default()
-        font_status = ImageFont.load_default()
+    font_large = _load_font(bold=True, size=16)
+    font_small = _load_font(bold=False, size=13)
+    font_status = _load_font(bold=True, size=14)
 
-    # State icon / label
-    state_labels = {'play': '> Playing', 'pause': '|| Paused', 'stop': '[] Stopped'}
-    state_text = state_labels.get(state, state.capitalize())
+    s = _strings()
+
+    # State label
+    state_text = s.get(state, state.capitalize())
     draw.text((4, 4), state_text, font=font_status, fill=0)
 
     # Separator line
     draw.line([(0, 24), (draw_w, 24)], fill=0, width=1)
 
     # Title — truncate if too long
-    title_text = title if title else '---'
+    title_text = title if title else s['no_title']
     if len(title_text) > 28:
         title_text = title_text[:25] + '...'
     draw.text((4, 30), title_text, font=font_large, fill=0)
@@ -94,18 +169,14 @@ def _render_message(epd, line1: str, line2: str = '') -> None:
     :param line1: First line of text
     :param line2: Optional second line of text
     """
-    from PIL import Image, ImageDraw, ImageFont
+    from PIL import Image, ImageDraw
 
     draw_w, draw_h = epd.height, epd.width  # landscape: 250×122
     image = Image.new('1', (draw_w, draw_h), 255)
     draw = ImageDraw.Draw(image)
 
-    try:
-        font = ImageFont.truetype('/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf', 18)
-        font2 = ImageFont.truetype('/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf', 14)
-    except IOError:
-        font = ImageFont.load_default()
-        font2 = ImageFont.load_default()
+    font = _load_font(bold=True, size=18)
+    font2 = _load_font(bold=False, size=14)
 
     draw.text((4, 30), line1, font=font, fill=0)
     if line2:
@@ -218,12 +289,18 @@ def _import_epd_driver():
 @plugs.initialize
 def initialize() -> None:
     """Load the EPD driver, initialise the display, and show the boot message."""
-    global _enabled, _display_thread
+    global _enabled, _display_thread, _locale
 
     _enabled = cfg.setndefault('eink_display', 'enable', value=False)
     if not _enabled:
         logger.info('E-Ink display is disabled in config')
         return
+
+    _locale = cfg.setndefault('eink_display', 'locale', value='en')
+    if _locale not in _STRINGS:
+        logger.warning(f"E-Ink unsupported locale '{_locale}', falling back to 'en'")
+        _locale = 'en'
+    logger.info(f'E-Ink display locale: {_locale}')
 
     try:
         # The waveshare-epaper PyPI package installs the library in a nested path
@@ -238,7 +315,8 @@ def initialize() -> None:
         epd = epd_module.EPD()
         epd.init()
         epd.Clear()
-        _render_message(epd, 'Jukebox', 'starting...')
+        s = _strings()
+        _render_message(epd, s['boot1'], s['boot2'])
         epd.sleep()
         # Store on module for use by finalize / atexit
         globals()['_epd'] = epd
@@ -280,7 +358,8 @@ def atexit(**ignored_kwargs):
     if epd is not None:
         try:
             epd.init()
-            _render_message(epd, 'Shutting', 'down...')
+            s = _strings()
+            _render_message(epd, s['shutdown1'], s['shutdown2'])
             epd.sleep()
         except Exception as e:
             logger.error(f'E-Ink atexit render error: {e.__class__.__name__}: {e}')

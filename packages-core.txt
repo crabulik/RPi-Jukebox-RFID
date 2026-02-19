@@ -6,6 +6,7 @@ alsa-utils
 caps
 espeak
 ffmpeg
+fonts-freefont-ttf # Cyrillic-capable fonts for e-ink display locale support
 libasound2-dev
 mpg123
 pulseaudio
