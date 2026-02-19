@@ -6,13 +6,13 @@ Description=Jukebox Daemon
 # pulseaudio is wanted by default.target, which means sound.target is not enough as after requirement
 # https://serverfault.com/questions/812584/in-systemd-whats-the-difference-between-after-and-requires
 # https://unix.stackexchange.com/questions/390898/understanding-systemd-requires-option
-After=network.target sound.target mpd.service pulseaudio.service
+After=network.target sound.target mpd.service pulseaudio.service eink-splash.service
 Requires=mpd.service pulseaudio.service
 
 [Service]
 WorkingDirectory=%%INSTALLATION_PATH%%
-# Show e-ink splash image before the daemon starts (non-fatal if display absent)
-ExecStartPre=-/bin/bash -c '%%INSTALLATION_PATH%%/.venv/bin/python3 %%INSTALLATION_PATH%%/src/jukebox/components/eink_display/show_splash.py'
+# Stop the splash service (releases the display) just before jukebox starts
+ExecStartPre=-/bin/systemctl --user stop eink-splash.service
 ExecStart=/bin/bash -c '%%INSTALLATION_PATH%%/run_jukebox.sh'
 StandardOutput=inherit
 StandardError=inherit

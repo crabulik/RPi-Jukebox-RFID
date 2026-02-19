@@ -20,13 +20,15 @@ If the image is not found or fails to load, a text fallback is shown instead.
 import glob
 import logging
 import os
+import signal
 import sys
+import threading
 
 logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
 logger = logging.getLogger('eink.splash')
 
 _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-_DEFAULT_IMAGE = os.path.join(_SCRIPT_DIR, '..', '..', '..', '..', 'img', 'Sleep.jpeg')
+_DEFAULT_IMAGE = os.path.join(_SCRIPT_DIR, '..', '..', '..', '..', 'img', 'Dancing.jpeg')
 
 
 def _ensure_waveshare_on_path() -> None:
@@ -129,6 +131,7 @@ def main() -> None:
         logger.error('No compatible EPD driver found — skipping splash')
         sys.exit(0)  # non-fatal: jukebox must still start
 
+    epd = None
     try:
         epd = epd_module.EPD()
         epd.init()
@@ -138,12 +141,25 @@ def main() -> None:
             logger.info('Falling back to text splash')
             _show_text_fallback(epd)
 
-        # Leave display awake — the jukebox plugin will take over from here.
-        # Do NOT call epd.sleep() so the image stays visible during boot.
-        logger.info('Splash displayed')
+        logger.info('Splash displayed — waiting for jukebox to take over')
+
+        # Block until systemd stops this service (SIGTERM) when the jukebox
+        # starts. The image stays visible on the display the whole time.
+        stop = threading.Event()
+        signal.signal(signal.SIGTERM, lambda s, f: stop.set())
+        signal.signal(signal.SIGINT, lambda s, f: stop.set())
+        stop.wait()
+
+        logger.info('Splash service stopping')
     except Exception as e:
         logger.error(f'Splash failed: {e.__class__.__name__}: {e}')
-        sys.exit(0)  # non-fatal
+    finally:
+        # Sleep the display so the jukebox plugin starts from a clean state
+        if epd is not None:
+            try:
+                epd.sleep()
+            except Exception:
+                pass
 
 
 if __name__ == '__main__':

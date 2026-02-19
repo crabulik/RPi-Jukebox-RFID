@@ -1,0 +1,20 @@
+[Unit]
+Description=E-Ink Boot Splash
+# Start as early as possible — only needs the filesystem, not network/audio
+DefaultDependencies=no
+After=local-fs.target
+Before=jukebox-daemon.service
+
+[Service]
+Type=simple
+WorkingDirectory=%%INSTALLATION_PATH%%
+# Show dancing bunny and keep it on screen until this service is stopped.
+# The jukebox-daemon.service will stop this service via BindsTo once it starts.
+ExecStart=%%INSTALLATION_PATH%%/.venv/bin/python3 %%INSTALLATION_PATH%%/src/jukebox/components/eink_display/show_splash.py
+# If the script fails for any reason (no display, missing driver), ignore it
+SuccessExitStatus=0 1 2
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target
