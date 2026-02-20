@@ -281,6 +281,15 @@ const commands = {
     plugin: 'say_my_ip',
     argKeys: ['option'],
   },
+  connect_trusted_bluetooth_device: {
+    _package: 'host',
+    plugin: 'connect_trusted_bluetooth_device',
+    argKeys: ['device_address'],
+  },
+  getTrustedBluetoothDevices: {
+    _package: 'host',
+    plugin: 'get_trusted_bluetooth_devices',
+  },
 
   // Misc
   getAppSettings: {

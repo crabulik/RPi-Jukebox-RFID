@@ -59,6 +59,7 @@ const JUKEBOX_ACTIONS_MAP = {
       reboot: {},
       say_my_ip: {},
       toggle_wifi: {},
+      connect_trusted_bluetooth_device: {},
     }
   },
 

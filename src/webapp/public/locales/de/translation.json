@@ -19,6 +19,7 @@
           "reboot": "Neustarten",
           "say_my_ip": "IP Addresse vorlesen",
           "toggle_wifi": "WLAN umschalten",
+          "connect_trusted_bluetooth_device": "Vertrauenswürdiges Bluetooth-Gerät verbinden",
           "timer_shutdown": "Herunterfahren",
           "timer_stop_player": "Player stoppen",
           "timer_fade_volume": "Lautstärke ausblenden und herunterfahren",
@@ -52,7 +53,14 @@
         "host": {
           "description": "Möchtest du die gesamte IP Addresse vorlesen lassen oder nur den letzten Quadranten?",
           "label-full": "Gesamte Addresse (z.B. 192.168.1.53)",
-          "label-short": "Letzter Quadrant (z.B. 53)"
+          "label-short": "Letzter Quadrant (z.B. 53)",
+          "bluetooth": {
+            "description": "Wähle das vertrauenswürdige Bluetooth-Gerät aus, das diese Karte verbinden soll.",
+            "placeholder": "Vertrauenswürdiges Bluetooth-Gerät auswählen",
+            "loading-error": "Vertrauenswürdige Bluetooth-Geräte konnten nicht geladen werden.",
+            "no-devices": "Keine vertrauenswürdigen Bluetooth-Geräte gefunden. Bitte zuerst ein Gerät koppeln und vertrauen.",
+            "connected-suffix": "(verbunden)"
+          }
         },
         "play-music": {
           "commands": {

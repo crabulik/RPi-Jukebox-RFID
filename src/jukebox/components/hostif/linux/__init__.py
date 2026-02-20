@@ -3,6 +3,7 @@
 
 import os
 import random
+import re
 import shutil
 import subprocess
 import logging
@@ -369,6 +370,80 @@ def get_throttled():
 # Network control
 # ---------------------------------------------------------------------------
 
+_BT_DEVICE_LINE_RE = re.compile(r'^Device\s+([0-9A-Fa-f:]{17})\s+(.+)$')
+
+
+def _run_btctl(*args):
+    return subprocess.run(['bluetoothctl', *args],
+                          stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                          check=False, stdin=subprocess.DEVNULL)
+
+
+def _parse_btctl_devices(output: str):
+    devices = []
+    for line in output.splitlines():
+        line = line.strip()
+        match = _BT_DEVICE_LINE_RE.match(line)
+        if match is not None:
+            devices.append({'address': match.group(1), 'name': match.group(2)})
+    return devices
+
+
+def _read_btctl_info(address: str):
+    ret = _run_btctl('info', address)
+    if ret.returncode != 0:
+        logger.error(f"bluetoothctl info {address}: {ret.stdout.decode(errors='ignore').strip()}")
+        return {}
+
+    info = {}
+    for line in ret.stdout.decode(errors='ignore').splitlines():
+        if ':' in line:
+            key, value = line.split(':', 1)
+            info[key.strip()] = value.strip()
+    return info
+
+
+def _list_connected_bluetooth_devices():
+    ret = _run_btctl('devices', 'Connected')
+    if ret.returncode == 0:
+        return _parse_btctl_devices(ret.stdout.decode(errors='ignore'))
+
+    logger.warning("bluetoothctl does not support 'devices Connected'; falling back to info scan")
+    ret = _run_btctl('devices')
+    if ret.returncode != 0:
+        logger.error(f"bluetoothctl devices failed: {ret.stdout.decode(errors='ignore').strip()}")
+        return []
+
+    connected_devices = []
+    for device in _parse_btctl_devices(ret.stdout.decode(errors='ignore')):
+        info = _read_btctl_info(device['address'])
+        if info.get('Connected', 'no').lower() == 'yes':
+            connected_devices.append(device)
+    return connected_devices
+
+
+def _list_trusted_bluetooth_devices():
+    ret = _run_btctl('devices')
+    if ret.returncode != 0:
+        logger.error(f"bluetoothctl devices failed: {ret.stdout.decode(errors='ignore').strip()}")
+        return []
+
+    trusted_devices = []
+    for device in _parse_btctl_devices(ret.stdout.decode(errors='ignore')):
+        info = _read_btctl_info(device['address'])
+        if info.get('Trusted', 'no').lower() != 'yes':
+            continue
+        trusted_devices.append({
+            'address': device['address'],
+            'name': info.get('Alias', device['name']),
+            'paired': info.get('Paired', 'no').lower() == 'yes',
+            'trusted': True,
+            'connected': info.get('Connected', 'no').lower() == 'yes',
+        })
+
+    trusted_devices.sort(key=lambda d: (d['name'].lower(), d['address']))
+    return trusted_devices
+
 @plugin.register
 def toggle_wifi():
     """Toggle the Wi-Fi radio on or off using nmcli.
@@ -408,6 +483,70 @@ def toggle_wifi():
 
     logger.info(f"toggle_wifi: Wi-Fi {new_state}")
     return f"WiFi {new_state}"
+
+
+@plugin.register
+def get_trusted_bluetooth_devices():
+    """Return trusted bluetooth devices as a list of dicts."""
+    return _list_trusted_bluetooth_devices()
+
+
+@plugin.register
+def connect_trusted_bluetooth_device(device_address: str):
+    """Disconnect all current BT devices and connect to the selected trusted device."""
+    if not device_address:
+        msg = "connect_trusted_bluetooth_device: missing device_address"
+        logger.error(msg)
+        return msg
+
+    target_address = device_address.upper()
+    trusted_devices = _list_trusted_bluetooth_devices()
+    trusted_by_address = {d['address'].upper(): d for d in trusted_devices}
+    if target_address not in trusted_by_address:
+        msg = f"connect_trusted_bluetooth_device: device '{target_address}' is not in trusted devices"
+        logger.error(msg)
+        return msg
+
+    disconnect_errors = []
+    connected_devices = _list_connected_bluetooth_devices()
+    for device in connected_devices:
+        address = device['address'].upper()
+        if address == target_address:
+            continue
+        ret = _run_btctl('disconnect', address)
+        if ret.returncode != 0:
+            err = ret.stdout.decode(errors='ignore').strip()
+            disconnect_errors.append(f"{address}: {err}")
+            logger.warning(f"disconnect {address} failed: {err}")
+        else:
+            logger.info(f"Disconnected bluetooth device: {address}")
+
+    if any(d['address'].upper() == target_address for d in connected_devices):
+        msg = f"Bluetooth device already connected: {target_address}"
+        if disconnect_errors:
+            msg = f"{msg} (disconnect warnings: {'; '.join(disconnect_errors)})"
+        logger.info(msg)
+        return msg
+
+    ret = _run_btctl('connect', target_address)
+    if ret.returncode != 0:
+        msg = f"connect_trusted_bluetooth_device: connect failed for '{target_address}': " \
+              f"{ret.stdout.decode(errors='ignore').strip()}"
+        logger.error(msg)
+        return msg
+
+    info = _read_btctl_info(target_address)
+    if info.get('Connected', 'no').lower() != 'yes':
+        msg = f"connect_trusted_bluetooth_device: connect command sent, but '{target_address}' is not connected"
+        logger.warning(msg)
+        return msg
+
+    name = trusted_by_address[target_address].get('name', target_address)
+    msg = f"Bluetooth connected: {name} ({target_address})"
+    if disconnect_errors:
+        msg = f"{msg} (disconnect warnings: {'; '.join(disconnect_errors)})"
+    logger.info(msg)
+    return msg
 
 
 @plugin.register

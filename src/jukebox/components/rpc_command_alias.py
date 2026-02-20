@@ -116,6 +116,15 @@ cmd_alias_definitions = {
         'package': 'host',
         'plugin': 'say_my_ip',
         'ignore_card_removal_action': True},
+    'toggle_wifi': {
+        'package': 'host',
+        'plugin': 'toggle_wifi',
+        'ignore_card_removal_action': True},
+    'connect_trusted_bluetooth_device': {
+        'title': 'Connect to trusted bluetooth device',
+        'package': 'host',
+        'plugin': 'connect_trusted_bluetooth_device',
+        'ignore_card_removal_action': True},
     # TIMER
     'timer_shutdown': {
         'package': 'timers',

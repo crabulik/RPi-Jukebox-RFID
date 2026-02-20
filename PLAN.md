@@ -177,6 +177,71 @@ bluetoothctl info XX:XX:XX:XX:XX:XX
 
 ---
 
+## Step 2c: RFID-Based Bluetooth Device Switching
+
+This setup allows assigning a card action that disconnects the currently connected Bluetooth audio device and connects a specific trusted device selected for that card.
+
+### Runtime flow (after implementation)
+
+1. RFID card is scanned
+2. Card alias `connect_trusted_bluetooth_device` is resolved by the card database
+3. Host plugin validates target address is in trusted devices
+4. Any currently connected Bluetooth device(s) are disconnected
+5. Selected trusted device is connected via `bluetoothctl connect <MAC>`
+6. Connectivity state updates are published on `host.connectivity`
+
+### Register a new Bluetooth device so it appears in Web UI
+
+Run once per device:
+
+```bash
+bluetoothctl
+scan on
+# wait for your device MAC, then:
+pair XX:XX:XX:XX:XX:XX
+trust XX:XX:XX:XX:XX:XX
+connect XX:XX:XX:XX:XX:XX
+exit
+```
+
+Verify the device is trusted:
+
+```bash
+bluetoothctl info XX:XX:XX:XX:XX:XX
+# Expect: Trusted: yes
+```
+
+Optional RPC verification from Jukebox:
+
+```bash
+cd ~/RPi-Jukebox-RFID
+./tools/run_rpc_tool.sh -c host.get_trusted_bluetooth_devices
+```
+
+### Register an RFID card for a specific trusted device
+
+1. Open Web UI → **Cards** → **Register card**
+2. Swipe card to capture card ID
+3. Select action **System**
+4. Select command **Connect trusted Bluetooth device**
+5. Select target device from dropdown (trusted devices only)
+6. Save
+
+### Test
+
+1. Connect device A manually
+2. Swipe card registered to device B
+3. Check:
+
+```bash
+bluetoothctl info XX:XX:XX:XX:XX:XX
+# Device B should show: Connected: yes
+```
+
+**Expected result:** current Bluetooth connection is switched to the trusted device assigned to the card.
+
+---
+
 ## Step 3: Configure RC522 RFID Reader (Remapped Pins)
 
 Configure the RC522 with the remapped pin assignments from the wiring plan.

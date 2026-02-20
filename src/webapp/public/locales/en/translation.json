@@ -19,6 +19,7 @@
           "reboot": "Reboot",
           "say_my_ip": "Say IP address",
           "toggle_wifi": "Toggle Wi-Fi",
+          "connect_trusted_bluetooth_device": "Connect trusted Bluetooth device",
           "timer_shutdown": "Shut Down",
           "timer_stop_player": "Stop player",
           "timer_fade_volume": "Fade volume and Shut Down",
@@ -52,7 +53,14 @@
         "host": {
           "description": "Do you want to hear the full IP address or just the last quadrant?",
           "label-full": "Full address (e.g. 192.168.1.53)",
-          "label-short": "Last quadrant (e.g. 53)"
+          "label-short": "Last quadrant (e.g. 53)",
+          "bluetooth": {
+            "description": "Select the trusted Bluetooth device this card should connect to.",
+            "placeholder": "Select trusted Bluetooth device",
+            "loading-error": "Failed to load trusted Bluetooth devices.",
+            "no-devices": "No trusted Bluetooth devices found. Pair and trust a device first.",
+            "connected-suffix": "(connected)"
+          }
         },
         "play-music": {
           "commands": {
