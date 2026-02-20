@@ -3,7 +3,7 @@ import WifiIcon from '@mui/icons-material/Wifi';
 import BluetoothIcon from '@mui/icons-material/Bluetooth';
 import Box from '@mui/material/Box';
 
-import ConnectivityContext from '../../context/connectivity';
+import ConnectivityContext from '../../context/connectivity/context';
 
 /**
  * StatusBar - displays Wi-Fi and Bluetooth connectivity icons in the top-right corner.
