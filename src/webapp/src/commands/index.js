@@ -30,6 +30,18 @@ const commands = {
     method: 'get_song_by_url',
     argKeys: ['song_url']
   },
+  getSongTags: {
+    _package: 'player',
+    plugin: 'ctrl',
+    method: 'get_song_tags',
+    argKeys: ['song_url'],
+  },
+  setSongTags: {
+    _package: 'player',
+    plugin: 'ctrl',
+    method: 'set_song_tags',
+    argKeys: ['song_url', 'tags'],
+  },
   folderList: {
     _package: 'player',
     plugin: 'ctrl',

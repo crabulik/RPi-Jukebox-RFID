@@ -716,6 +716,86 @@ class PlayerMPD:
 
         return song
 
+    @plugs.tag
+    def get_song_tags(self, song_url):
+        """Read editable ID3/Vorbis tags for a song file.
+
+        Returns a dict with keys: title, artist, albumartist, album, track, date, genre, comment.
+        Only tags present in the file are included. song_url is the relative MPD path."""
+        import mutagen
+        song_url = self.harmonize_mpd_url(song_url)
+        abs_path = Path(components.player.get_music_library_path(), song_url).expanduser()
+
+        try:
+            audio = mutagen.File(abs_path, easy=True)
+        except Exception as e:
+            logger.error(f"get_song_tags: cannot open '{abs_path}': {e}")
+            return {'error': str(e)}
+
+        if audio is None:
+            return {'error': f"Unsupported format: {abs_path}"}
+
+        editable_keys = ['title', 'artist', 'albumartist', 'album', 'tracknumber', 'date', 'genre', 'comment']
+        tags = {}
+        for key in editable_keys:
+            values = audio.tags.get(key) if audio.tags else None
+            if values:
+                tags[key] = values[0] if len(values) == 1 else values
+        return tags
+
+    @plugs.tag
+    def set_song_tags(self, song_url, tags):
+        """Write ID3/Vorbis tags for a song file and trigger an MPD library rescan.
+
+        :param song_url: Relative MPD path to the song file.
+        :param tags: Dict of tag key → value strings. Supported keys:
+                     title, artist, albumartist, album, tracknumber, date, genre, comment.
+                     Pass an empty string to delete a tag."""
+        import mutagen
+        song_url = self.harmonize_mpd_url(song_url)
+        abs_path = Path(components.player.get_music_library_path(), song_url).expanduser()
+
+        if not abs_path.is_file():
+            msg = f"set_song_tags: file not found: '{abs_path}'"
+            logger.error(msg)
+            return {'error': msg}
+
+        if not os.access(abs_path, os.W_OK):
+            msg = f"set_song_tags: file is not writable: '{abs_path}'"
+            logger.error(msg)
+            return {'error': msg}
+
+        try:
+            audio = mutagen.File(abs_path, easy=True)
+        except Exception as e:
+            logger.error(f"set_song_tags: cannot open '{abs_path}': {e}")
+            return {'error': str(e)}
+
+        if audio is None:
+            return {'error': f"Unsupported format: {abs_path}"}
+
+        allowed_keys = {'title', 'artist', 'albumartist', 'album', 'tracknumber', 'date', 'genre', 'comment'}
+        for key, value in tags.items():
+            if key not in allowed_keys:
+                logger.warning(f"set_song_tags: ignoring unknown tag key '{key}'")
+                continue
+            if value == '' or value is None:
+                if audio.tags and key in audio.tags:
+                    del audio.tags[key]
+            else:
+                audio[key] = [str(value)]
+
+        try:
+            audio.save()
+        except Exception as e:
+            logger.error(f"set_song_tags: failed to save '{abs_path}': {e}")
+            return {'error': str(e)}
+
+        logger.info(f"set_song_tags: saved tags for '{song_url}'")
+        # Trigger MPD rescan so the updated tags appear in its database
+        self.update()
+        return {'status': 'ok'}
+
     def get_volume(self):
         """
         Get the current volume

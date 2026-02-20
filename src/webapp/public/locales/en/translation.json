@@ -151,6 +151,22 @@
       "empty-library": "Your library is empty!",
       "no-songs-in-album": "Strange, no songs in this album.",
       "assign-to-card": "Assign album to card"
+    },
+    "metadata-editor": {
+      "title": "Edit tags: {{title}}",
+      "edit-button-label": "Edit song tags",
+      "load-error": "Failed to load song tags.",
+      "save-error": "Failed to save song tags.",
+      "fields": {
+        "title": "Title",
+        "artist": "Artist",
+        "albumartist": "Album Artist",
+        "album": "Album",
+        "tracknumber": "Track Number",
+        "date": "Year",
+        "genre": "Genre",
+        "comment": "Comment"
+      }
     }
   },
   "navigation": {
