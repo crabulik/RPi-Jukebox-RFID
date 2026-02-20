@@ -18,6 +18,7 @@
           "shutdown": "Herunterfahren",
           "reboot": "Neustarten",
           "say_my_ip": "IP Addresse vorlesen",
+          "toggle_wifi": "WLAN umschalten",
           "timer_shutdown": "Herunterfahren",
           "timer_stop_player": "Player stoppen",
           "timer_fade_volume": "Lautstärke ausblenden und herunterfahren",

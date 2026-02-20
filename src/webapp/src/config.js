@@ -58,6 +58,7 @@ const JUKEBOX_ACTIONS_MAP = {
       shutdown: {},
       reboot: {},
       say_my_ip: {},
+      toggle_wifi: {},
     }
   },
 

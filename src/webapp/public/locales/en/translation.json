@@ -18,6 +18,7 @@
           "shutdown": "Shut Down",
           "reboot": "Reboot",
           "say_my_ip": "Say IP address",
+          "toggle_wifi": "Toggle Wi-Fi",
           "timer_shutdown": "Shut Down",
           "timer_stop_player": "Stop player",
           "timer_fade_volume": "Fade volume and Shut Down",
