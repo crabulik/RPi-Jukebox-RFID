@@ -24,6 +24,7 @@ The plugin is guarded by an enable flag in jukebox.yaml:
   eink_display:
     enable: true
     locale: en        # 'en' (default) or 'uk' for Ukrainian
+    show_ip_after_stop_sec: 60
 
 Supported locales: en, uk
 
@@ -39,10 +40,12 @@ import logging
 import os
 import sys
 import threading
+import time
 
 import jukebox.cfghandler
 import jukebox.plugs as plugs
 import jukebox.publishing.subscriber
+import zmq
 
 # Paths to bunny images relative to the repo root (resolved at runtime)
 _IMG_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)),
@@ -211,7 +214,13 @@ def _draw_bluetooth_icon(draw, x: int, y: int, size: int = 14) -> None:
 # Image builders
 # ---------------------------------------------------------------------------
 
-def _build_status_image(epd, state: str, title: str, artist: str, wifi: bool = False, bluetooth: bool = False):
+def _build_status_image(epd,
+                        state: str,
+                        title: str,
+                        artist: str,
+                        wifi: bool = False,
+                        bluetooth: bool = False,
+                        status_text_override: str = ''):
     """Build and return a PIL Image for the current player status.
 
     Does not touch the display — callers decide whether to do a full or
@@ -223,6 +232,8 @@ def _build_status_image(epd, state: str, title: str, artist: str, wifi: bool = F
     :param artist: Current track artist (may be empty string)
     :param wifi: Whether Wi-Fi is connected (shows icon if True)
     :param bluetooth: Whether Bluetooth is connected (shows icon if True)
+    :param status_text_override: Optional replacement for the status-bar label text.
+        The state icon remains based on ``state``.
     :returns: PIL Image in landscape orientation (250×122)
     """
     from PIL import Image, ImageDraw
@@ -251,7 +262,7 @@ def _build_status_image(epd, state: str, title: str, artist: str, wifi: bool = F
     # State icon + label — icon drawn as PIL primitives, text placed after it
     icon_size = font_status.size if hasattr(font_status, 'size') else 18
     text_x = _draw_state_icon(draw, state, x=4, y=2, size=icon_size)
-    state_text = s.get(state, state.capitalize())
+    state_text = status_text_override if status_text_override else s.get(state, state.capitalize())
     draw.text((text_x, 2), state_text, font=font_status, fill=0)
 
     # Connectivity icons in top-right corner
@@ -371,7 +382,7 @@ class DisplayThread(threading.Thread):
     - Display stays awake between updates
     """
 
-    def __init__(self, epd):
+    def __init__(self, epd, show_ip_after_stop_sec: int = 60):
         super().__init__(name='EinkDisplay', daemon=True)
         self._epd = epd
         self._keep_running = True
@@ -381,15 +392,26 @@ class DisplayThread(threading.Thread):
         self._last_wifi = False
         self._last_bluetooth = False
         self._render_count = 0  # tracks when to force a full refresh
+        self._show_ip_after_stop_sec = max(0, int(show_ip_after_stop_sec))
+        self._stopped_since = None
+        self._status_text_override = ''
+        self._cached_ip = ''
+        self._last_ip_fetch = 0.0
+        self._ip_refresh_interval_sec = 10.0
 
     def run(self) -> None:
         logger.info('E-Ink display thread started')
         sub = jukebox.publishing.subscriber.Subscriber(
             'inproc://PublisherToProxy', ['playerstatus', 'host.connectivity']
         )
+        # Wake up periodically so stop-timeout transitions can trigger render updates.
+        sub.socket.setsockopt(zmq.RCVTIMEO, 1000)
         while self._keep_running:
             try:
-                topic, payload = sub.receive()
+                try:
+                    topic, payload = sub.receive()
+                except zmq.Again:
+                    topic, payload = None, None
                 if not self._keep_running:
                     break
 
@@ -399,6 +421,11 @@ class DisplayThread(threading.Thread):
                     state = payload.get('state', 'stop')
                     title = payload.get('title', '')
                     artist = payload.get('artist', '')
+                    if state != self._last_state:
+                        if state == 'stop':
+                            self._stopped_since = time.monotonic()
+                        else:
+                            self._stopped_since = None
                     if (state != self._last_state
                             or title != self._last_title
                             or artist != self._last_artist):
@@ -419,19 +446,60 @@ class DisplayThread(threading.Thread):
                         changed = True
                         logger.debug(f'E-Ink connectivity update: wifi={wifi} bluetooth={bluetooth}')
 
+                if self._update_status_text_override():
+                    changed = True
+
                 if changed:
                     self._render(self._last_state, self._last_title, self._last_artist,
-                                 self._last_wifi, self._last_bluetooth)
+                                 self._last_wifi, self._last_bluetooth, self._status_text_override)
 
             except Exception as e:
                 if self._keep_running:
                     logger.error(f'E-Ink subscriber error: {e.__class__.__name__}: {e}')
         logger.info('E-Ink display thread stopped')
 
-    def _render(self, state: str, title: str, artist: str, wifi: bool, bluetooth: bool) -> None:
+    def _fetch_ip_cached(self) -> str:
+        """Read host IP with throttling to avoid subprocess calls on every loop."""
+        now = time.monotonic()
+        if (now - self._last_ip_fetch) < self._ip_refresh_interval_sec:
+            return self._cached_ip
+
+        self._last_ip_fetch = now
+        ip = plugs.call_ignore_errors('host', 'get_ip_address')
+        self._cached_ip = ip.strip() if isinstance(ip, str) else ''
+        return self._cached_ip
+
+    def _update_status_text_override(self) -> bool:
+        """Switch status text from 'Stopped' to IP after configured idle timeout."""
+        old_text = self._status_text_override
+        new_text = ''
+
+        if (self._last_state == 'stop'
+                and self._stopped_since is not None
+                and self._show_ip_after_stop_sec > 0):
+            stopped_for = time.monotonic() - self._stopped_since
+            if stopped_for >= self._show_ip_after_stop_sec:
+                new_text = self._fetch_ip_cached()
+
+        self._status_text_override = new_text
+        return new_text != old_text
+
+    def _render(self,
+                state: str,
+                title: str,
+                artist: str,
+                wifi: bool,
+                bluetooth: bool,
+                status_text_override: str = '') -> None:
         """Render one frame, choosing full or partial refresh as appropriate."""
         try:
-            image = _build_status_image(self._epd, state, title, artist, wifi, bluetooth)
+            image = _build_status_image(self._epd,
+                                        state,
+                                        title,
+                                        artist,
+                                        wifi,
+                                        bluetooth,
+                                        status_text_override=status_text_override)
             use_full = (self._render_count % FULL_REFRESH_INTERVAL == 0)
             if use_full:
                 logger.debug(f'E-Ink full refresh (count={self._render_count})')
@@ -518,6 +586,15 @@ def initialize() -> None:
         _locale = 'en'
     logger.info(f'E-Ink display locale: {_locale}')
 
+    stop_ip_after_sec = cfg.setndefault('eink_display', 'show_ip_after_stop_sec', value=60)
+    try:
+        stop_ip_after_sec = max(0, int(stop_ip_after_sec))
+    except (TypeError, ValueError):
+        logger.warning(f"Invalid eink_display.show_ip_after_stop_sec={stop_ip_after_sec!r}, using 60")
+        stop_ip_after_sec = 60
+    globals()['_stop_ip_after_sec'] = stop_ip_after_sec
+    logger.info(f'E-Ink stop-to-IP timeout: {stop_ip_after_sec}s')
+
     try:
         _ensure_waveshare_on_path()
 
@@ -556,7 +633,8 @@ def finalize() -> None:
     if epd is None:
         return
 
-    _display_thread = DisplayThread(epd)
+    stop_ip_after_sec = globals().get('_stop_ip_after_sec', 60)
+    _display_thread = DisplayThread(epd, show_ip_after_stop_sec=stop_ip_after_sec)
     _display_thread.start()
     logger.info('E-Ink display subscriber thread started')
 

@@ -155,6 +155,11 @@ speaking_text:
 sync_rfidcards:
   enable: false
   config_file: ../../shared/settings/sync_rfidcards.yaml
+eink_display:
+  enable: false
+  locale: en
+  # When playback remains stopped this long, show IP in status bar instead of "Stopped"
+  show_ip_after_stop_sec: 60
 webapp:
   coverart_cache_path: ../../src/webapp/build/cover-cache
   # Default Web UI language (locale key from src/webapp/public/locales, e.g. en, de, uk)
