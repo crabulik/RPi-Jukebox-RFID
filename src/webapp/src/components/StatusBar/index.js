@@ -12,9 +12,6 @@ import ConnectivityContext from '../../context/connectivity/context';
 const StatusBar = () => {
   const { wifi, bluetooth } = useContext(ConnectivityContext);
 
-  // Debug: log connectivity state
-  console.log('StatusBar render:', { wifi, bluetooth });
-
   return (
     <Box
       sx={{
@@ -24,13 +21,10 @@ const StatusBar = () => {
         display: 'flex',
         gap: 0.5,
         zIndex: 1200,
-        backgroundColor: 'rgba(255, 0, 0, 0.1)', // Debug: red tint to see position
       }}
     >
       {wifi && <WifiIcon fontSize="small" color="action" />}
       {bluetooth && <BluetoothIcon fontSize="small" color="action" />}
-      {/* Debug: always show at least one icon to verify positioning */}
-      {!wifi && !bluetooth && <WifiIcon fontSize="small" sx={{ opacity: 0.3 }} />}
     </Box>
   );
 };
