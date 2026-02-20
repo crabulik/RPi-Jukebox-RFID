@@ -157,11 +157,61 @@ def _draw_state_icon(draw, state: str, x: int, y: int, size: int = 16) -> int:
     return x + size + 5  # 5px gap between icon and text
 
 
+def _draw_wifi_icon(draw, x: int, y: int, size: int = 14) -> None:
+    """Draw a Wi-Fi icon (three curved arcs) at position (x, y).
+
+    The icon is drawn as a simplified Wi-Fi symbol with three nested arcs.
+
+    :param draw: ImageDraw instance
+    :param x: Left edge of the icon bounding box
+    :param y: Top edge of the icon bounding box
+    :param size: Icon height in pixels (default 14)
+    """
+    # Wi-Fi icon: bottom dot + 3 arcs above it
+    # Bottom dot (access point)
+    dot_r = max(1, size // 8)
+    cx = x + size // 2
+    dot_y = y + size - dot_r
+    draw.ellipse([cx - dot_r, dot_y - dot_r, cx + dot_r, dot_y + dot_r], fill=0)
+
+    # Three arcs (small, medium, large) — drawn as partial circles
+    # Using arc() requires PIL to be built with freetype, so use line segments instead
+    arc_w = max(1, size // 10)
+    for i, radius in enumerate([size // 4, size // 2, 3 * size // 4]):
+        y_offset = y + size - radius
+        draw.arc([cx - radius, y_offset, cx + radius, y_offset + radius * 2], start=200, end=340, fill=0, width=arc_w)
+
+
+def _draw_bluetooth_icon(draw, x: int, y: int, size: int = 14) -> None:
+    """Draw a Bluetooth icon (stylised 'B' symbol) at position (x, y).
+
+    The icon is drawn as a simplified Bluetooth rune symbol.
+
+    :param draw: ImageDraw instance
+    :param x: Left edge of the icon bounding box
+    :param y: Top edge of the icon bounding box
+    :param size: Icon height in pixels (default 14)
+    """
+    # Bluetooth icon: vertical line with two triangular shapes
+    cx = x + size // 2
+    line_w = max(1, size // 10)
+
+    # Vertical center line
+    draw.line([(cx, y), (cx, y + size)], fill=0, width=line_w)
+
+    # Upper triangle (pointing right-up)
+    mid_y = y + size // 2
+    draw.polygon([(cx, y), (x + size, mid_y - size // 6), (cx, mid_y)], outline=0, fill=0)
+
+    # Lower triangle (pointing right-down)
+    draw.polygon([(cx, mid_y), (x + size, mid_y + size // 6), (cx, y + size)], outline=0, fill=0)
+
+
 # ---------------------------------------------------------------------------
 # Image builders
 # ---------------------------------------------------------------------------
 
-def _build_status_image(epd, state: str, title: str, artist: str):
+def _build_status_image(epd, state: str, title: str, artist: str, wifi: bool = False, bluetooth: bool = False):
     """Build and return a PIL Image for the current player status.
 
     Does not touch the display — callers decide whether to do a full or
@@ -171,6 +221,8 @@ def _build_status_image(epd, state: str, title: str, artist: str):
     :param state: MPD state string: 'play', 'pause', or 'stop'
     :param title: Current track title (may be empty string)
     :param artist: Current track artist (may be empty string)
+    :param wifi: Whether Wi-Fi is connected (shows icon if True)
+    :param bluetooth: Whether Bluetooth is connected (shows icon if True)
     :returns: PIL Image in landscape orientation (250×122)
     """
     from PIL import Image, ImageDraw
@@ -201,6 +253,17 @@ def _build_status_image(epd, state: str, title: str, artist: str):
     text_x = _draw_state_icon(draw, state, x=4, y=2, size=icon_size)
     state_text = s.get(state, state.capitalize())
     draw.text((text_x, 2), state_text, font=font_status, fill=0)
+
+    # Connectivity icons in top-right corner
+    conn_icon_size = 14
+    conn_x = draw_w - 4  # Start from right edge with 4px padding
+    if bluetooth:
+        conn_x -= conn_icon_size
+        _draw_bluetooth_icon(draw, conn_x, 4, conn_icon_size)
+        conn_x -= 4  # 4px gap between icons
+    if wifi:
+        conn_x -= conn_icon_size
+        _draw_wifi_icon(draw, conn_x, 4, conn_icon_size)
 
     # Separator line
     draw.line([(0, 26), (draw_w, 26)], fill=0, width=1)
@@ -299,7 +362,7 @@ def _partial_refresh(epd, image) -> None:
 # ---------------------------------------------------------------------------
 
 class DisplayThread(threading.Thread):
-    """Background thread that subscribes to 'playerstatus' and updates the display.
+    """Background thread that subscribes to 'playerstatus' and 'host.connectivity', updates the display.
 
     Refresh strategy:
     - First render: full refresh (init + display + seed base image)
@@ -315,42 +378,60 @@ class DisplayThread(threading.Thread):
         self._last_state = ''
         self._last_title = ''
         self._last_artist = ''
+        self._last_wifi = False
+        self._last_bluetooth = False
         self._render_count = 0  # tracks when to force a full refresh
 
     def run(self) -> None:
         logger.info('E-Ink display thread started')
         sub = jukebox.publishing.subscriber.Subscriber(
-            'inproc://PublisherToProxy', ['playerstatus']
+            'inproc://PublisherToProxy', ['playerstatus', 'host.connectivity']
         )
         while self._keep_running:
             try:
                 topic, payload = sub.receive()
                 if not self._keep_running:
                     break
+
+                changed = False
+
                 if topic == 'playerstatus' and isinstance(payload, dict):
                     state = payload.get('state', 'stop')
                     title = payload.get('title', '')
                     artist = payload.get('artist', '')
-                    # Only redraw if something actually changed
                     if (state != self._last_state
                             or title != self._last_title
                             or artist != self._last_artist):
                         self._last_state = state
                         self._last_title = title
                         self._last_artist = artist
+                        changed = True
                         logger.debug(
-                            f'E-Ink update: state={state} title={title!r} artist={artist!r}'
+                            f'E-Ink player update: state={state} title={title!r} artist={artist!r}'
                         )
-                        self._render(state, title, artist)
+
+                elif topic == 'host.connectivity' and isinstance(payload, dict):
+                    wifi = payload.get('wifi', False)
+                    bluetooth = payload.get('bluetooth', False)
+                    if (wifi != self._last_wifi or bluetooth != self._last_bluetooth):
+                        self._last_wifi = wifi
+                        self._last_bluetooth = bluetooth
+                        changed = True
+                        logger.debug(f'E-Ink connectivity update: wifi={wifi} bluetooth={bluetooth}')
+
+                if changed:
+                    self._render(self._last_state, self._last_title, self._last_artist,
+                                 self._last_wifi, self._last_bluetooth)
+
             except Exception as e:
                 if self._keep_running:
                     logger.error(f'E-Ink subscriber error: {e.__class__.__name__}: {e}')
         logger.info('E-Ink display thread stopped')
 
-    def _render(self, state: str, title: str, artist: str) -> None:
+    def _render(self, state: str, title: str, artist: str, wifi: bool, bluetooth: bool) -> None:
         """Render one frame, choosing full or partial refresh as appropriate."""
         try:
-            image = _build_status_image(self._epd, state, title, artist)
+            image = _build_status_image(self._epd, state, title, artist, wifi, bluetooth)
             use_full = (self._render_count % FULL_REFRESH_INTERVAL == 0)
             if use_full:
                 logger.debug(f'E-Ink full refresh (count={self._render_count})')
