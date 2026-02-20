@@ -2,8 +2,11 @@ import logging
 import threading
 import time
 import importlib
+import json
+import os
 from typing import Callable
 from enum import Enum
+from datetime import datetime, timezone
 
 import jukebox.plugs as plugs
 import jukebox.cfghandler
@@ -19,6 +22,26 @@ _READERS = {}
 cfg_rfid = jukebox.cfghandler.get_handler('rfid')
 cfg_main = jukebox.cfghandler.get_handler('jukebox')
 cfg_cards = jukebox.cfghandler.get_handler('cards')
+_scan_history_file_lock = threading.Lock()
+
+
+def append_scan_history_event(filename: str, reader_cfg_key: str, card_id: str, is_registered: bool):
+    """Append one RFID scan event to a JSONL file."""
+    if filename is None or str(filename).strip() == '':
+        return
+    payload = {
+        'timestamp_utc': datetime.now(timezone.utc).isoformat(),
+        'reader': reader_cfg_key,
+        'card_id': card_id,
+        'is_registered': bool(is_registered)
+    }
+    directory = os.path.dirname(filename)
+    if directory:
+        os.makedirs(directory, exist_ok=True)
+    with _scan_history_file_lock:
+        with open(filename, mode='a', encoding='utf-8') as stream:
+            stream.write(json.dumps(payload, ensure_ascii=True, sort_keys=True))
+            stream.write('\n')
 
 
 class RfidCardDetectState(Enum):
@@ -109,6 +132,9 @@ class ReaderRunner(threading.Thread):
                                                          'place_not_swipe', 'enabled', value=False)
         self._cfg_log_ignored_cards = cfg_rfid.setndefault('rfid', 'readers', reader_cfg_key,
                                                            'log_ignored_cards', value=False)
+        self._cfg_scan_history_file = cfg_main.setndefault('rfid', 'scan_history_file',
+                                                           value='../../shared/settings/rfid_scan_history.jsonl')
+        self._has_scan_history_write_error = False
         # Get removal actions:
         cfg_removal_action = cfg_rfid.getn('rfid', 'readers', reader_cfg_key,
                                            'place_not_swipe', 'card_removal_action', default=None)
@@ -184,6 +210,14 @@ class ReaderRunner(threading.Thread):
                         rfid_card_detect_callbacks.run_callbacks(card_id, RfidCardDetectState.received)
 
                         card_entry = cfg_cards.get(card_id, default=None)
+                        try:
+                            append_scan_history_event(self._cfg_scan_history_file, self._reader_cfg_key, card_id,
+                                                      card_entry is not None)
+                        except Exception as e:
+                            if not self._has_scan_history_write_error:
+                                self._logger.error(f"Unable to append RFID scan history to "
+                                                   f"'{self._cfg_scan_history_file}': {e}")
+                                self._has_scan_history_write_error = True
                         if card_entry is not None:
 
                             # (4) Decode card action

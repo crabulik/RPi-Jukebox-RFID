@@ -104,6 +104,8 @@ publishing:
 rfid:
   reader_config: ../../shared/settings/rfid.yaml
   card_database: ../../shared/settings/cards.yaml
+  # Append-only storage of all detected RFID scans (registered and unknown)
+  scan_history_file: ../../shared/settings/rfid_scan_history.jsonl
 gpioz:
   enable: false
   config_file: ../../shared/settings/gpio.yaml
