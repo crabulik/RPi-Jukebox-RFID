@@ -1,0 +1,333 @@
+{
+  "general": {
+    "buttons": {
+      "cancel": "Скасувати",
+      "delete": "Видалити",
+      "save": "Зберегти"
+    },
+    "loading": "Завантаження"
+  },
+  "cards": {
+    "controls": {
+      "command-selector": {
+        "title": "Команди",
+        "label": "{{title}} команди",
+        "placeholder": "Виберіть команду",
+        "commands": {
+          "change_volume": "Змінити гучність на",
+          "shutdown": "Вимкнути",
+          "reboot": "Перезавантажити",
+          "say_my_ip": "Озвучити IP-адресу",
+          "toggle_wifi": "Перемкнути Wi-Fi",
+          "connect_trusted_bluetooth_device": "Підключити довірений Bluetooth-пристрій",
+          "timer_shutdown": "Вимкнути",
+          "timer_stop_player": "Зупинити плеєр",
+          "timer_fade_volume": "Плавно зменшити гучність і вимкнути",
+          "toggle_output": "Перемкнути аудіовихід",
+          "sync_rfidcards_all": "Синхронізувати всі аудіофайли та записи карток",
+          "sync_rfidcards_change_on_rfid_scan": "Змінити активацію для 'on RFID scan'",
+          "next_song": "Наступна пісня",
+          "pause": "Пауза",
+          "play": "Відтворити",
+          "prev_song": "Попередня пісня",
+          "shuffle": "Перемішування",
+          "repeat": "Повтор",
+          "toggle": "Перемкнути Відтворення/Пауза"
+        }
+      },
+      "controls-selector": {
+        "label": "Дія Jukebox"
+      },
+      "select-command-aliases": {
+        "label": "Дії",
+        "placeholder": "Виберіть дію",
+        "actions": {
+          "play_music": "Відтворення музики",
+          "audio": "Аудіо та гучність",
+          "host": "Система",
+          "timers": "Таймери",
+          "synchronisation": "Синхронізація"
+        }
+      },
+      "actions": {
+        "host": {
+          "description": "Озвучувати повну IP-адресу чи лише останній сегмент?",
+          "label-full": "Повна адреса (наприклад, 192.168.1.53)",
+          "label-short": "Останній сегмент (наприклад, 53)",
+          "bluetooth": {
+            "description": "Виберіть довірений Bluetooth-пристрій, до якого має підключатися ця картка.",
+            "placeholder": "Виберіть довірений Bluetooth-пристрій",
+            "loading-error": "Не вдалося завантажити довірені Bluetooth-пристрої.",
+            "no-devices": "Довірених Bluetooth-пристроїв не знайдено. Спершу виконайте сполучення і позначте пристрій як довірений.",
+            "connected-suffix": "(підключено)"
+          }
+        },
+        "play-music": {
+          "commands": {
+            "play_album": "Вибраний альбом",
+            "play_folder": "Вибрана папка",
+            "play_single": "Вибрана пісня"
+          },
+          "button-label": "Вибрати музику",
+          "no-music-selected": "Музику не вибрано",
+          "loading-song-error": "Сталася помилка під час завантаження пісні."
+        },
+        "audio": {
+          "repeat": {
+            "description": "Виберіть стан для встановлення.",
+            "label-toggle": "Перемкнути — циклічно: 1) повтор плейлиста, 2) повтор пісні, 3) вимкнути повтор",
+            "label-toggle-repeat": "Перемкнути повтор плейлиста",
+            "label-toggle-repeat-single": "Перемкнути повтор пісні",
+            "label-enable-repeat": "Увімкнути повтор плейлиста",
+            "label-enable-repeat-single": "Увімкнути повтор пісні",
+            "label-disable": "Вимкнути"
+          },
+          "shuffle": {
+            "description": "Виберіть стан для встановлення.",
+            "label-toggle": "Перемкнути",
+            "label-enable": "Увімкнути",
+            "label-disable": "Вимкнути"
+          },
+          "volume": {
+            "title": "Кроки гучності"
+          }
+        },
+        "timers": {
+          "description": "Виберіть кількість хвилин, через яку потрібно виконати дію."
+        },
+        "synchronisation": {
+          "rfidcards": {
+            "description": "Виберіть стан для встановлення.",
+            "label-toggle": "Перемкнути",
+            "label-enable": "Увімкнути",
+            "label-disable": "Вимкнути"
+          }
+        }
+      }
+    },
+    "dialogs": {
+      "delete": {
+        "title": "Видалити картку '{{cardId}}'",
+        "description": "Ви впевнені, що хочете видалити цю картку?"
+      }
+    },
+    "edit": {
+      "edit-card": "Редагувати картку"
+    },
+    "form": {
+      "no-card-swiped": "Будь ласка, прикладіть картку, щоб отримати ID, який буде використано для реєстрації нової дії.",
+      "no-card-id": "Немає ID картки"
+    },
+    "list": {
+      "no-cards-registered": "Картки не зареєстровано!"
+    },
+    "overview": {
+      "cards": "Картки",
+      "loading-error": "Сталася помилка під час завантаження списку карток.",
+      "register-card": "Зареєструвати картку"
+    },
+    "register": {
+      "register-card": "Зареєструвати картку"
+    }
+  },
+  "header": {
+    "back": "Назад"
+  },
+  "library": {
+    "loading-error": "Сталася помилка під час завантаження бібліотеки.",
+    "header": {
+      "search-hide": "Сховати пошук",
+      "search-show": "Показати пошук",
+      "search-label": "Пошук",
+      "toggle-label": "Перемкнути перегляд Альбоми/Папки",
+      "albums": "Альбоми",
+      "folders": "Папки"
+    },
+    "selector-header": {
+      "title": "Виберіть альбом, папку або пісню"
+    },
+    "folders": {
+      "no-music": "☝️ Музику не знайдено!",
+      "empty-folder": "Ця папка порожня! 🙈",
+      "show-folder-content": "Показати вміст папки",
+      "back-button-label": "Назад"
+    },
+    "albums": {
+      "unknown-album": "Невідомий альбом",
+      "unknown-artist": "Невідомий виконавець",
+      "unknown-title": "Невідома назва",
+      "no-music": "Музику не знайдено!",
+      "empty-library": "Ваша бібліотека порожня!",
+      "no-songs-in-album": "Дивно, у цьому альбомі немає пісень.",
+      "assign-to-card": "Призначити альбом на картку"
+    },
+    "metadata-editor": {
+      "title": "Редагувати теги: {{title}}",
+      "edit-button-label": "Редагувати теги пісні",
+      "load-error": "Не вдалося завантажити теги пісні.",
+      "save-error": "Не вдалося зберегти теги пісні.",
+      "fields": {
+        "title": "Назва",
+        "artist": "Виконавець",
+        "albumartist": "Виконавець альбому",
+        "album": "Альбом",
+        "tracknumber": "Номер треку",
+        "date": "Рік",
+        "genre": "Жанр",
+        "comment": "Коментар"
+      }
+    }
+  },
+  "navigation": {
+    "start": "Старт",
+    "library": "Бібліотека",
+    "cards": "Картки",
+    "settings": "Налаштування"
+  },
+  "player": {
+    "controls": {
+      "shuffle": {
+        "enable": "Увімкнути перемішування",
+        "disable": "Вимкнути перемішування"
+      },
+      "prev_song": "Перейти до попереднього треку",
+      "play": "Відтворити",
+      "pause": "Пауза",
+      "next_song": "Перейти до наступного треку",
+      "repeat": {
+        "enable": "Увімкнути повтор плейлиста",
+        "enable-single": "Увімкнути повтор пісні",
+        "disable": "Вимкнути повтор"
+      }
+    },
+    "cover": {
+      "title": "Обкладинка",
+      "unavailable": "Обкладинка недоступна"
+    },
+    "display": {
+      "unknown-title": "Невідома назва",
+      "unknown-artist": "Невідомі виконавці",
+      "no-song-in-queue": "У черзі немає пісні"
+    },
+    "seekbar": {
+      "song-position": "Поточна позиція"
+    },
+    "volume": {
+      "slider": "Повзунок гучності",
+      "mute": "Вимкнути звук",
+      "unmute": "Увімкнути звук"
+    }
+  },
+  "settings": {
+    "feature-not-enabled": "🚧 Цю функцію ще не увімкнено.",
+    "dialogs": {
+      "reboot": {
+        "title": "Перезавантаження",
+        "rebooting": "Перезавантаження",
+        "button-title": "Перезавантажити",
+        "description-confirm": "Ви впевнені, що хочете перезавантажити зараз?",
+        "failed": "Помилка перезавантаження",
+        "bye": "👋 До побачення"
+      },
+      "shutdown": {
+        "title": "Вимкнення",
+        "bye": "👋 До побачення",
+        "button-title": "Вимкнути",
+        "description-confirm": "Ви впевнені, що хочете вимкнути зараз?",
+        "description-success": "Успішно вимкнено",
+        "failed": "Помилка вимкнення"
+      }
+    },
+    "autohotspot": {
+      "title": "Авто-точка доступу",
+      "not-installed": "Цю функцію не встановлено.",
+      "why": "Чому?",
+      "control-label": "Авто-точка доступу"
+    },
+    "general": {
+      "title": "Загальні налаштування",
+      "show_covers": {
+        "title": "Показувати обкладинки"
+      }
+    },
+    "timers": {
+      "option-label-timeslot": "{{value}} хв",
+      "option-label-off": "Вимкнено",
+      "title": "Таймери",
+      "stop-player": {
+        "title": "Зупинити плеєр",
+        "label": "Зупиняє відтворення після завершення таймера."
+      },
+      "shutdown": {
+        "title": "Вимкнути",
+        "label": "Примусово вимикає Phoniebox після завершення таймера."
+      },
+      "fade-volume": {
+        "title": "Плавно зменшити гучність і вимкнути",
+        "label": "Плавно знижує гучність наприкінці таймера, а потім вимикає Phoniebox."
+      },
+      "idle-shutdown": {
+        "title": "Вимкнення у простої",
+        "label": "Вимикає Phoniebox після простою протягом заданого часу."
+      },
+      "ended": "Готово",
+      "set": "Встановити таймер",
+      "cancel": "Скасувати",
+      "paused": "Призупинено",
+      "dialog": {
+        "title": "Встановити таймер {{value}}",
+        "description": "Виберіть кількість хвилин, через яку потрібно виконати дію.",
+        "start": "Запустити таймер",
+        "cancel": "Скасувати"
+      }
+    },
+    "secondswipe": {
+      "title": "Друге прикладання",
+      "description": "Друга дія після повторного прикладання тієї самої картки",
+      "restart": "Перезапустити плейлист",
+      "toggle": "Перемкнути пауза / відтворення",
+      "skip": "Перейти до наступного треку",
+      "ignore": "Ігнорувати тригери відтворення, виконувати лише системні команди"
+    },
+    "status": {
+      "title": "Система",
+      "battery": {
+        "title": "Батарея",
+        "charging": "Батарея заряджається",
+        "not-charging": "Батарея не заряджається"
+      },
+      "cpu-temp": {
+        "label": "Температура CPU",
+        "unavailable": "Недоступно",
+        "not-enabled": "Не ввімкнено або не підтримується"
+      },
+      "disk-usage": {
+        "label": "Використання диска",
+        "loading-error": "Не вдалося завантажити використання диска.",
+        "result": "Використано {{used}} ГБ з {{total}} ГБ ({{result}}%)"
+      },
+      "ip-address": {
+        "label": "IP-адреса",
+        "button-title": "Озвучити мою IP-адресу",
+        "loading-error": "Не вдалося завантажити IP-адресу."
+      },
+      "version": {
+        "label": "Версія ядра Jukebox"
+      }
+    },
+    "audio": {
+      "title": "Аудіо",
+      "outputs": {
+        "title": "Виходи",
+        "settings.audio.outputs.radio-primary": "Динамік (основний)",
+        "settings.audio.outputs.radio-secondary": "Bluetooth (додатковий)"
+      },
+      "volume": {
+        "max-volume": "Максимальна гучність"
+      }
+    },
+    "systemcontrols": {
+      "title": "Системні елементи керування"
+    }
+  }
+}

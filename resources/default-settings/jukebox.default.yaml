@@ -157,6 +157,8 @@ sync_rfidcards:
   config_file: ../../shared/settings/sync_rfidcards.yaml
 webapp:
   coverart_cache_path: ../../src/webapp/build/cover-cache
+  # Default Web UI language (locale key from src/webapp/public/locales, e.g. en, de, uk)
+  default_language: en
   # Load cover arts in Webapp. Change to false in case you have performance issue
   # when handling a lot of music
   # Defaults to true

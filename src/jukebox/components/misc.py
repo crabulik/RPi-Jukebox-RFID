@@ -113,9 +113,11 @@ def empty_rpc_call(msg: str = ''):
 def get_app_settings():
     """Return settings for web app stored in jukebox.yaml"""
     show_covers = cfg.setndefault('webapp', 'show_covers', value=True)
+    default_language = cfg.setndefault('webapp', 'default_language', value='en')
 
     return {
-        'show_covers': show_covers
+        'show_covers': show_covers,
+        'default_language': default_language
     }
 
 
