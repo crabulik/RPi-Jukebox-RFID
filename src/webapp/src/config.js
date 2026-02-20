@@ -10,6 +10,7 @@ const SUBSCRIPTIONS = [
   'core.plugins.loaded',
   'core.version',
   'core.started_at',
+  'host.connectivity',
   'host.timer.cputemp',
   'host.temperature.cpu',
   'playerstatus',

@@ -4,14 +4,16 @@ import { Route, HashRouter, Routes } from 'react-router-dom'
 import Cards from './components/Cards';
 import Library from './components/Library';
 import Navigation from './components/Navigation';
-import Player from './components/Player'
-import Settings from './components/Settings'
+import Player from './components/Player';
+import Settings from './components/Settings';
+import StatusBar from './components/StatusBar';
 
 import Grid from '@mui/material/Grid';
 
 const Router = () => {
   return (
     <HashRouter>
+      <StatusBar />
       <Grid
         item xs={12}
         md={6}

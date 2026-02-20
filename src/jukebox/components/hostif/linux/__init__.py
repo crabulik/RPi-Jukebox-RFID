@@ -136,6 +136,7 @@ def get_disk_usage(path='/'):
 # Temperature
 # ---------------------------------------------------------------------------
 timer_temperature: GenericEndlessTimerClass
+timer_connectivity: GenericEndlessTimerClass
 
 
 @plugin.register
@@ -409,6 +410,49 @@ def toggle_wifi():
     return f"WiFi {new_state}"
 
 
+@plugin.register
+def get_connectivity_status():
+    """Return Wi-Fi and Bluetooth connectivity state as a dict.
+
+    Returns:
+        {'wifi': bool, 'bluetooth': bool}
+
+    - wifi: True if Wi-Fi radio is enabled (nmcli radio wifi == 'enabled')
+    - bluetooth: True if at least one Bluetooth device is connected (bluetoothctl info contains 'Connected: yes')
+    """
+    # Wi-Fi: nmcli radio wifi → 'enabled' or 'disabled'
+    wifi_ret = subprocess.run(
+        ['nmcli', 'radio', 'wifi'],
+        stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+        check=False, stdin=subprocess.DEVNULL,
+    )
+    wifi_on = wifi_ret.returncode == 0 and wifi_ret.stdout.decode().strip() == 'enabled'
+
+    # Bluetooth: bluetoothctl info → contains 'Connected: yes' if any device connected
+    bt_ret = subprocess.run(
+        ['bluetoothctl', 'info'],
+        stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+        check=False, stdin=subprocess.DEVNULL,
+    )
+    bt_connected = bt_ret.returncode == 0 and 'Connected: yes' in bt_ret.stdout.decode()
+
+    return {'wifi': wifi_on, 'bluetooth': bt_connected}
+
+
+@plugin.register
+def publish_connectivity_status():
+    """Publish the current connectivity status to the 'host.connectivity' ZMQ topic."""
+    global timer_connectivity
+    try:
+        status = get_connectivity_status()
+    except Exception as e:
+        logger.error(f"Error reading connectivity status. Canceling connectivity publisher. {e.__class__.__name__}: {e}")
+        timer_connectivity.cancel()
+        publisher.revoke('host.connectivity')
+    else:
+        jukebox.publishing.get_publisher().send('host.connectivity', status)
+
+
 # ---------------------------------------------------------------------------
 # Playback
 # ---------------------------------------------------------------------------
@@ -456,9 +500,22 @@ def finalize():
         publish_cpu_temperature()
         timer_temperature.start()
 
+    global timer_connectivity
+    connectivity_enabled = cfg.setndefault('host', 'publish_connectivity', 'enabled', value=True)
+    connectivity_wait_time = cfg.setndefault('host', 'publish_connectivity', 'timer_interval_sec', value=10)
+    timer_connectivity = GenericEndlessTimerClass('host.timer.connectivity',
+                                                   connectivity_wait_time,
+                                                   publish_connectivity_status)
+    timer_connectivity.__doc__ = "Endless timer for publishing connectivity status (Wi-Fi and Bluetooth)"
+    plugin.register(timer_connectivity, name='timer_connectivity', package=plugin.loaded_as(__name__))
+    if connectivity_enabled:
+        publish_connectivity_status()
+        timer_connectivity.start()
+
 
 @plugin.atexit
 def atexit(**ignored_kwargs):
-    global timer_temperature
+    global timer_temperature, timer_connectivity
     timer_temperature.cancel()
-    return timer_temperature.timer_thread
+    timer_connectivity.cancel()
+    return [timer_temperature.timer_thread, timer_connectivity.timer_thread]
