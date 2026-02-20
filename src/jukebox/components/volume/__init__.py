@@ -224,6 +224,7 @@ class PulseMonitor(threading.Thread):
 
             # A new card is always assumed to be the Bluetooth device, as this is the only removable device
             if self._toggle_on_connect:
+                pulse_control._ensure_secondary_sink(self._pulse_inst)
                 pulse_control._set_output(self._pulse_inst, 1)
             # Context for running callbacks is already acquired
             self.on_connect_callbacks._run_callbacks(card_info.driver, device_name)
@@ -408,17 +409,72 @@ class PulseVolumeControl:
         sink_alias = 'Unset alias'
         for e in self._sink_list:
             if e.pulse_sink_name == sink_name:
-                sink_alias = e.alias
+                sink_alias = self._get_runtime_sink_alias(pulse_inst, e)
                 break
         return sink_alias, sink_name
 
+    def _get_runtime_sink_alias(self, pulse_inst: pulsectl.Pulse, sink: PulseAudioSinkClass) -> str:
+        """Resolve user-facing sink label, preferring real BT device name."""
+        alias = sink.alias
+        if not sink.pulse_sink_name.startswith('bluez_sink.'):
+            return alias
+
+        try:
+            sink_obj = pulse_inst.get_sink_by_name(sink.pulse_sink_name)
+        except Exception:
+            return alias
+
+        # PulseAudio usually exposes bluetooth device name here.
+        runtime_alias = sink_obj.proplist.get('device.description') or getattr(sink_obj, 'description', None)
+        if runtime_alias:
+            return runtime_alias
+        return alias
+
+    def _get_sink_list_payload(self, pulse_inst: pulsectl.Pulse):
+        """Build sink_list payload with runtime aliases for UI consumers."""
+        sink_list = []
+        for sink in self._sink_list:
+            sink_list.append({
+                'alias': self._get_runtime_sink_alias(pulse_inst, sink),
+                'pulse_sink_name': sink.pulse_sink_name,
+                'volume_limit': sink.volume_limit,
+            })
+        return sink_list
+
+    def _ensure_secondary_sink(self, pulse_inst: pulsectl.Pulse) -> bool:
+        """Auto-detect and append a bluetooth secondary sink at runtime.
+
+        This keeps output selection usable in WebUI when secondary output is not
+        configured in YAML but a bluetooth sink becomes available after startup.
+        """
+        if len(self._sink_list) > 1:
+            return False
+
+        sink_names = [x.name for x in pulse_inst.sink_list()]
+        bluez_sinks = [sink for sink in sink_names if sink.startswith('bluez_sink.')]
+        if not bluez_sinks:
+            return False
+
+        default_sink_name = pulse_inst.server_info().default_sink_name
+        pulse_sink_name = default_sink_name if default_sink_name in bluez_sinks else bluez_sinks[0]
+        if any(s.pulse_sink_name == pulse_sink_name for s in self._sink_list):
+            return False
+
+        alias = cfg.setndefault('pulse', 'outputs', 'secondary', 'alias', value='Bluetooth headset')
+        volume_limit = cfg.setndefault('pulse', 'outputs', 'secondary', 'volume_limit', value=100)
+        self._sink_list.append(PulseAudioSinkClass(alias, pulse_sink_name, volume_limit))
+        self._volume_limit[pulse_sink_name] = volume_limit / 100.0
+        logger.info(f"Auto-detected secondary bluetooth sink '{pulse_sink_name}'")
+        return True
+
     def _publish_outputs(self, pulse_inst: pulsectl.Pulse):
+        self._ensure_secondary_sink(pulse_inst)
         sink_alias, sink_name = self._get_outputs(pulse_inst)
 
         publishing.get_publisher().send('volume.sink',
                                         {'active_alias': sink_alias,
                                          'active_sink': sink_name,
-                                         'sink_list': [s._asdict() for s in self._sink_list]})
+                                         'sink_list': self._get_sink_list_payload(pulse_inst)})
         return sink_alias, sink_name
 
     def _set_output(self, pulse_inst: pulsectl.Pulse, sink_index: int):
@@ -457,6 +513,7 @@ class PulseVolumeControl:
         return alias, sink_name
 
     def _toggle_output(self, pulse_inst: pulsectl.Pulse):
+        self._ensure_secondary_sink(pulse_inst)
         sink_name = pulse_inst.server_info().default_sink_name
         # Always default to index 0, unless we a in index 0; then switch to index 1
         sink_index = 0
@@ -474,10 +531,12 @@ class PulseVolumeControl:
     def get_outputs(self):
         """Get current output and list of outputs"""
         with pulse_monitor as pulse:
+            self._ensure_secondary_sink(pulse)
             sink_alias, sink_name = self._get_outputs(pulse)
+            sink_list = self._get_sink_list_payload(pulse)
         return {'active_alias': sink_alias,
                 'active_sink': sink_name,
-                'sink_list': [s._asdict() for s in self._sink_list]}
+                'sink_list': sink_list}
 
     @plugin.tag
     def publish_volume(self):
@@ -610,7 +669,17 @@ def parse_config() -> List[PulseAudioSinkClass]:
         pulse_sink_name = cfg.getn('pulse', 'outputs', key, 'pulse_sink_name', default=None)
         # No need to check validity of pulse sink name: this could be a disconnected bluetooth device
         if pulse_sink_name is None:
-            logger.info("Ignoring secondary audio output configuration because it is missing or incomplete")
+            # Fallback: auto-detect a currently available bluetooth sink so WebUI
+            # can show/select it even if secondary is not configured yet.
+            bluez_sinks = [sink for sink in all_sinks if sink.startswith('bluez_sink.')]
+            if bluez_sinks:
+                pulse_sink_name = default_sink_name if default_sink_name in bluez_sinks else bluez_sinks[0]
+                alias = cfg.setndefault('pulse', 'outputs', key, 'alias', value='Bluetooth headset')
+                volume_limit = cfg.setndefault('pulse', 'outputs', key, 'volume_limit', value=100)
+                sink_list.append(PulseAudioSinkClass(alias, pulse_sink_name, volume_limit))
+                logger.info(f"Auto-detected secondary audio output sink '{pulse_sink_name}'")
+            else:
+                logger.info("Ignoring secondary audio output configuration because it is missing or incomplete")
         else:
             # Only need to get the configuration, if device is actually configured
             alias = cfg.setndefault('pulse', 'outputs', key, 'alias', value='Unset alias')

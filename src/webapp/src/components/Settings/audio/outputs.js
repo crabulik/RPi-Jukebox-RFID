@@ -22,38 +22,43 @@ const Outputs = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [isError, setIsError] = useState(false);
 
-  const setOutput = (event, sink_index) => {
-    setActiveSink(sink_index);
+  const fetchAudioOutputs = async () =>  {
+    setIsLoading(true);
+    const { result, error } = await request('getAudioOutputs');
+    setIsLoading(false);
+
+    if (error || !result) {
+      setIsError(true);
+      return console.error(error);
+    }
+
+    const { active_sink, sink_list } = result;
+    const activeSinkIndex = findIndex(
+      propEq('pulse_sink_name', active_sink)
+    )(sink_list);
+
+    setActiveSink(activeSinkIndex);
+    setSinkList(sink_list);
+    setIsError(false);
+  };
+
+  const setOutput = async (event, sink_index) => {
+    const targetIndex = parseInt(sink_index, 10);
+    setActiveSink(targetIndex);
 
     setIsLoading(true);
-    (async () => {
-      await request('setAudioOutput', { sink_index: parseInt(sink_index) });
-    })();
-    setIsLoading(false);
+    const { error } = await request('setAudioOutput', { sink_index: targetIndex });
+    if (error) {
+      setIsError(true);
+      console.error(error);
+    }
+    await fetchAudioOutputs();
   }
 
   useEffect(() => {
-    const fetchAudioOutputs = async () =>  {
-      const {
-        result: { active_sink, sink_list },
-        error
-      } = await request('getAudioOutputs');
-      setIsLoading(false);
-
-      if (error) {
-        setIsError(true);
-        return console.error(error);
-      }
-
-      const activeSinkIndex = findIndex(
-        propEq('pulse_sink_name', active_sink)
-      )(sink_list);
-
-      setActiveSink(activeSinkIndex);
-      setSinkList(sink_list);
-    }
-
     fetchAudioOutputs();
+    const interval = setInterval(fetchAudioOutputs, 5000);
+    return () => clearInterval(interval);
   }, []);
 
   return (
