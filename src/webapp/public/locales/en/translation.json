@@ -337,6 +337,8 @@
       "no_image": "No image",
       "line1": "Line 1 (bold)",
       "line2": "Line 2",
+      "mode_color": "Color",
+      "mode_bw": "B/W",
       "generate": "Generate Card",
       "preview": "Preview",
       "save_png": "Save as PNG",

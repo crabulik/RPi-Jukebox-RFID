@@ -335,6 +335,8 @@
       "no_image": "Kein Bild",
       "line1": "Zeile 1 (fett)",
       "line2": "Zeile 2",
+      "mode_color": "Farbe",
+      "mode_bw": "S/W",
       "generate": "Karte generieren",
       "preview": "Vorschau",
       "save_png": "Als PNG speichern",
