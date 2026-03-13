@@ -53,7 +53,7 @@ const centerCropImage = (ctx, img, destX, destY, destW, destH) => {
 
 /**
  * CardImageGenerator – renders an RFID card image (500×800 px) from an uploaded
- * image and two text lines, then lets the user download the result as PNG.
+ * image and two text lines, then lets the user download the result as PNG or JPEG.
  *
  * Props:
  *   line1  {string}  – bold top text line (e.g. song title)
@@ -61,6 +61,7 @@ const centerCropImage = (ctx, img, destX, destY, destW, destH) => {
  */
 const CardImageGenerator = ({ line1 = '', line2 = '' }) => {
   const { t } = useTranslation();
+  // Single canvas ref — always mounted, visibility toggled via CSS only
   const canvasRef = useRef(null);
   const fileInputRef = useRef(null);
 
@@ -147,12 +148,17 @@ const CardImageGenerator = ({ line1 = '', line2 = '' }) => {
     setCardGenerated(true);
   };
 
-  const saveCard = () => {
+  const downloadCard = (format) => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const link = document.createElement('a');
-    link.download = 'rfid-card.png';
-    link.href = canvas.toDataURL('image/png');
+    if (format === 'jpeg') {
+      link.download = 'rfid-card.jpg';
+      link.href = canvas.toDataURL('image/jpeg', 0.92);
+    } else {
+      link.download = 'rfid-card.png';
+      link.href = canvas.toDataURL('image/png');
+    }
     link.click();
   };
 
@@ -172,15 +178,14 @@ const CardImageGenerator = ({ line1 = '', line2 = '' }) => {
           <Button variant="outlined" onClick={() => fileInputRef.current.click()}>
             {t('settings.cardprint.browse')}
           </Button>
-          {selectedImage && (
+          {selectedImage ? (
             <Box
               component="img"
               src={selectedImage}
               alt="selected"
               sx={{ width: 60, height: 60, objectFit: 'cover', borderRadius: 1, border: '1px solid #ccc' }}
             />
-          )}
-          {!selectedImage && (
+          ) : (
             <Typography variant="body2" color="text.secondary">
               {t('settings.cardprint.no_image_selected')}
             </Typography>
@@ -195,28 +200,26 @@ const CardImageGenerator = ({ line1 = '', line2 = '' }) => {
         </Button>
       </Grid>
 
-      {/* Preview */}
-      {cardGenerated && (
-        <Grid item>
-          <Typography variant="subtitle2" color="text.secondary" gutterBottom>
-            {t('settings.cardprint.preview')}
-          </Typography>
-          <Box sx={{ maxWidth: '100%', overflowX: 'auto' }}>
-            <canvas
-              ref={canvasRef}
-              style={{ display: 'block', maxWidth: '100%', height: 'auto' }}
-            />
-          </Box>
-          <Box sx={{ mt: 1 }}>
-            <Button variant="outlined" onClick={saveCard}>
-              {t('settings.cardprint.save')}
-            </Button>
-          </Box>
-        </Grid>
-      )}
-
-      {/* Hidden canvas before generation */}
-      {!cardGenerated && <canvas ref={canvasRef} style={{ display: 'none' }} />}
+      {/* Canvas — always mounted, hidden until generated */}
+      <Grid item sx={{ display: cardGenerated ? 'block' : 'none' }}>
+        <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+          {t('settings.cardprint.preview')}
+        </Typography>
+        <Box sx={{ maxWidth: '100%', overflowX: 'auto' }}>
+          <canvas
+            ref={canvasRef}
+            style={{ display: 'block', maxWidth: '100%', height: 'auto' }}
+          />
+        </Box>
+        <Box sx={{ mt: 1, display: 'flex', gap: 1 }}>
+          <Button variant="outlined" onClick={() => downloadCard('png')}>
+            {t('settings.cardprint.save_png')}
+          </Button>
+          <Button variant="outlined" onClick={() => downloadCard('jpeg')}>
+            {t('settings.cardprint.save_jpeg')}
+          </Button>
+        </Box>
+      </Grid>
 
     </Grid>
   );

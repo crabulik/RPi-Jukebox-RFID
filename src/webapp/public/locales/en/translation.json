@@ -339,7 +339,8 @@
       "line2": "Line 2",
       "generate": "Generate Card",
       "preview": "Preview",
-      "save": "Save as PNG"
+      "save_png": "Save as PNG",
+      "save_jpeg": "Save as JPEG"
     }
   }
 }

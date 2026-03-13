@@ -337,7 +337,8 @@
       "line2": "Zeile 2",
       "generate": "Karte generieren",
       "preview": "Vorschau",
-      "save": "Als PNG speichern"
+      "save_png": "Als PNG speichern",
+      "save_jpeg": "Als JPEG speichern"
     }
   }
 }
