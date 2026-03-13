@@ -9,11 +9,13 @@ import {
   DialogActions,
   DialogContent,
   DialogTitle,
+  Divider,
   TextField,
   Typography,
 } from '@mui/material';
 
 import request from '../../../../../utils/request';
+import CardImageGenerator from '../../../../general/CardImageGenerator';
 
 /**
  * TAG_FIELDS defines which tags are shown in the editor and in what order.
@@ -137,6 +139,11 @@ const MetadataEditor = ({ open, onClose, song }) => {
                 disabled={saving}
               />
             ))}
+            <Divider />
+            <CardImageGenerator
+              line1={fields.title ?? ''}
+              line2={fields.artist ?? ''}
+            />
           </Box>
         )}
       </DialogContent>
