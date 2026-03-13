@@ -4,6 +4,7 @@ import { Grid } from '@mui/material';
 
 import SettingsAudio from './audio/index';
 import SettingsAutoHotspot from './autohotspot';
+import CardPrint from './card_print/index';
 import SettingsGeneral from './general';
 import SettingsSecondSwipe from './secondswipe';
 import SettingsStatus from './status/index';
@@ -46,6 +47,9 @@ const Settings = () => {
       </Grid>
       <Grid item>
         <SettingsAutoHotspot />
+      </Grid>
+      <Grid item>
+        <CardPrint />
       </Grid>
     </Grid>
   );

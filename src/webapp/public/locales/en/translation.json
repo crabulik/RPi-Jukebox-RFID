@@ -329,6 +329,17 @@
     },
     "systemcontrols": {
       "title": "System Controls"
+    },
+    "cardprint": {
+      "title": "Card Image Generator",
+      "browse": "Select Image",
+      "no_image_selected": "No image selected",
+      "no_image": "No image",
+      "line1": "Line 1 (bold)",
+      "line2": "Line 2",
+      "generate": "Generate Card",
+      "preview": "Preview",
+      "save": "Save as PNG"
     }
   }
 }
