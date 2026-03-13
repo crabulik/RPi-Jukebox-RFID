@@ -19,6 +19,14 @@ const BORDER_WIDTH = 6;
 const BORDER_COLOR = '#000000';
 const BW_CONTRAST_FACTOR = 2.2;
 
+// Session-scoped download counter — persists across component remounts
+let sessionCounter = 0;
+const nextFilename = (ext) => {
+  const name = `PHO${String(sessionCounter).padStart(4, '0')}.${ext}`;
+  sessionCounter += 1;
+  return name;
+};
+
 const drawRoundedRect = (ctx, x, y, width, height, radius) => {
   ctx.beginPath();
   ctx.moveTo(x + radius, y);
@@ -36,9 +44,7 @@ const drawRoundedRect = (ctx, x, y, width, height, radius) => {
 const centerCropImage = (ctx, img, destX, destY, destW, destH) => {
   const srcAspect = img.naturalWidth / img.naturalHeight;
   const destAspect = destW / destH;
-
   let srcX, srcY, srcW, srcH;
-
   if (srcAspect > destAspect) {
     srcH = img.naturalHeight;
     srcW = srcH * destAspect;
@@ -50,32 +56,89 @@ const centerCropImage = (ctx, img, destX, destY, destW, destH) => {
     srcX = 0;
     srcY = (img.naturalHeight - srcH) / 2;
   }
-
   ctx.drawImage(img, srcX, srcY, srcW, srcH, destX, destY, destW, destH);
 };
 
-/** Convert the image region of the canvas to high-contrast B/W in place. */
 const applyBwFilter = (ctx, x, y, width, height) => {
   const imageData = ctx.getImageData(x, y, width, height);
   const data = imageData.data;
-
   for (let i = 0; i < data.length; i += 4) {
-    // Luminance-weighted grayscale
     const gray = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
-    // Contrast boost around midpoint
     const boosted = Math.min(255, Math.max(0, (gray - 128) * BW_CONTRAST_FACTOR + 128));
     data[i] = boosted;
     data[i + 1] = boosted;
     data[i + 2] = boosted;
-    // alpha unchanged
   }
-
   ctx.putImageData(imageData, x, y);
 };
 
 /**
- * CardImageGenerator – renders an RFID card image (500×800 px) from an uploaded
- * image and two text lines, then lets the user download the result as PNG or JPEG.
+ * Draw the base 500×800 card onto the given canvas element.
+ * The canvas dimensions are set inside this function.
+ */
+const drawBaseCard = (canvas, imageElement, bwMode, line1, line2, noImageLabel) => {
+  canvas.width = CARD_WIDTH;
+  canvas.height = CARD_HEIGHT;
+  const ctx = canvas.getContext('2d');
+
+  drawRoundedRect(ctx, 0, 0, CARD_WIDTH, CARD_HEIGHT, BORDER_RADIUS);
+  ctx.save();
+  ctx.clip();
+
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, CARD_WIDTH, CARD_HEIGHT);
+
+  if (imageElement) {
+    centerCropImage(ctx, imageElement, 0, 0, IMAGE_SIZE, IMAGE_SIZE);
+    if (bwMode) applyBwFilter(ctx, 0, 0, IMAGE_SIZE, IMAGE_SIZE);
+  } else {
+    ctx.fillStyle = bwMode ? '#c0c0c0' : '#e0e0e0';
+    ctx.fillRect(0, 0, IMAGE_SIZE, IMAGE_SIZE);
+    ctx.fillStyle = '#9e9e9e';
+    ctx.font = '28px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(noImageLabel, IMAGE_SIZE / 2, IMAGE_SIZE / 2);
+  }
+
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, IMAGE_SIZE, CARD_WIDTH, TEXT_AREA_HEIGHT);
+
+  const textAreaMidY = IMAGE_SIZE + TEXT_AREA_HEIGHT / 2;
+  ctx.fillStyle = '#000000';
+  ctx.textAlign = 'center';
+  ctx.font = 'bold 42px sans-serif';
+  ctx.fillText(line1, CARD_WIDTH / 2, textAreaMidY - 30, CARD_WIDTH - 40);
+  ctx.font = '32px sans-serif';
+  ctx.fillText(line2, CARD_WIDTH / 2, textAreaMidY + 40, CARD_WIDTH - 40);
+
+  ctx.restore();
+
+  ctx.strokeStyle = BORDER_COLOR;
+  ctx.lineWidth = BORDER_WIDTH;
+  drawRoundedRect(ctx, BORDER_WIDTH / 2, BORDER_WIDTH / 2, CARD_WIDTH - BORDER_WIDTH, CARD_HEIGHT - BORDER_WIDTH, BORDER_RADIUS);
+  ctx.stroke();
+};
+
+/**
+ * Copy the offscreen canvas onto the display canvas with rotation applied.
+ * rotDeg must be 0, 90, 180, or 270.
+ */
+const applyRotationToCanvas = (displayCanvas, offscreen, rotDeg) => {
+  const rad = (rotDeg * Math.PI) / 180;
+  const swapped = rotDeg === 90 || rotDeg === 270;
+
+  displayCanvas.width  = swapped ? CARD_HEIGHT : CARD_WIDTH;
+  displayCanvas.height = swapped ? CARD_WIDTH  : CARD_HEIGHT;
+
+  const ctx = displayCanvas.getContext('2d');
+  ctx.translate(displayCanvas.width / 2, displayCanvas.height / 2);
+  ctx.rotate(rad);
+  ctx.drawImage(offscreen, -CARD_WIDTH / 2, -CARD_HEIGHT / 2);
+};
+
+/**
+ * CardImageGenerator – renders an RFID card image from an uploaded image and
+ * two text lines, with color/B/W mode, rotation, and PNG/JPEG download.
  *
  * Props:
  *   line1  {string}  – bold top text line (e.g. song title)
@@ -83,19 +146,19 @@ const applyBwFilter = (ctx, x, y, width, height) => {
  */
 const CardImageGenerator = ({ line1 = '', line2 = '' }) => {
   const { t } = useTranslation();
-  // Single canvas ref — always mounted, visibility toggled via CSS only
-  const canvasRef = useRef(null);
+  const canvasRef    = useRef(null);
+  const offscreenRef = useRef(document.createElement('canvas'));
   const fileInputRef = useRef(null);
 
   const [selectedImage, setSelectedImage] = useState(null);
-  const [imageElement, setImageElement] = useState(null);
+  const [imageElement, setImageElement]   = useState(null);
   const [cardGenerated, setCardGenerated] = useState(false);
-  const [bwMode, setBwMode] = useState(false);
+  const [bwMode, setBwMode]               = useState(false);
+  const [rotation, setRotation]           = useState(0);
 
   const handleImageSelect = (event) => {
     const file = event.target.files[0];
     if (!file) return;
-
     const reader = new FileReader();
     reader.onload = (e) => {
       const img = new Image();
@@ -110,74 +173,30 @@ const CardImageGenerator = ({ line1 = '', line2 = '' }) => {
   };
 
   const handleModeChange = (_, newMode) => {
-    if (newMode === null) return; // keep at least one selected
+    if (newMode === null) return;
     setBwMode(newMode === 'bw');
     setCardGenerated(false);
   };
 
   const generateCard = () => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-
-    const ctx = canvas.getContext('2d');
-    canvas.width = CARD_WIDTH;
-    canvas.height = CARD_HEIGHT;
-
-    // Clip entire card to rounded rect
-    drawRoundedRect(ctx, 0, 0, CARD_WIDTH, CARD_HEIGHT, BORDER_RADIUS);
-    ctx.save();
-    ctx.clip();
-
-    // White background
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(0, 0, CARD_WIDTH, CARD_HEIGHT);
-
-    // Image area (center-cropped square)
-    if (imageElement) {
-      centerCropImage(ctx, imageElement, 0, 0, IMAGE_SIZE, IMAGE_SIZE);
-      if (bwMode) {
-        applyBwFilter(ctx, 0, 0, IMAGE_SIZE, IMAGE_SIZE);
-      }
-    } else {
-      ctx.fillStyle = bwMode ? '#c0c0c0' : '#e0e0e0';
-      ctx.fillRect(0, 0, IMAGE_SIZE, IMAGE_SIZE);
-      ctx.fillStyle = '#9e9e9e';
-      ctx.font = '28px sans-serif';
-      ctx.textAlign = 'center';
-      ctx.fillText(t('settings.cardprint.no_image'), IMAGE_SIZE / 2, IMAGE_SIZE / 2);
-    }
-
-    // Text area
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(0, IMAGE_SIZE, CARD_WIDTH, TEXT_AREA_HEIGHT);
-
-    const textAreaMidY = IMAGE_SIZE + TEXT_AREA_HEIGHT / 2;
-
-    ctx.fillStyle = '#000000';
-    ctx.textAlign = 'center';
-
-    ctx.font = 'bold 42px sans-serif';
-    ctx.fillText(line1, CARD_WIDTH / 2, textAreaMidY - 30, CARD_WIDTH - 40);
-
-    ctx.font = '32px sans-serif';
-    ctx.fillText(line2, CARD_WIDTH / 2, textAreaMidY + 40, CARD_WIDTH - 40);
-
-    ctx.restore();
-
-    // Border
-    ctx.strokeStyle = BORDER_COLOR;
-    ctx.lineWidth = BORDER_WIDTH;
-    drawRoundedRect(
-      ctx,
-      BORDER_WIDTH / 2,
-      BORDER_WIDTH / 2,
-      CARD_WIDTH - BORDER_WIDTH,
-      CARD_HEIGHT - BORDER_WIDTH,
-      BORDER_RADIUS
+    drawBaseCard(
+      offscreenRef.current,
+      imageElement,
+      bwMode,
+      line1,
+      line2,
+      t('settings.cardprint.no_image')
     );
-    ctx.stroke();
-
+    applyRotationToCanvas(canvasRef.current, offscreenRef.current, rotation);
     setCardGenerated(true);
+  };
+
+  const rotateCard = () => {
+    const newRotation = (rotation + 90) % 360;
+    setRotation(newRotation);
+    if (cardGenerated) {
+      applyRotationToCanvas(canvasRef.current, offscreenRef.current, newRotation);
+    }
   };
 
   const downloadCard = (format) => {
@@ -185,10 +204,10 @@ const CardImageGenerator = ({ line1 = '', line2 = '' }) => {
     if (!canvas) return;
     const link = document.createElement('a');
     if (format === 'jpeg') {
-      link.download = 'rfid-card.jpg';
+      link.download = nextFilename('jpg');
       link.href = canvas.toDataURL('image/jpeg', 0.92);
     } else {
-      link.download = 'rfid-card.png';
+      link.download = nextFilename('png');
       link.href = canvas.toDataURL('image/png');
     }
     link.click();
@@ -233,12 +252,8 @@ const CardImageGenerator = ({ line1 = '', line2 = '' }) => {
           onChange={handleModeChange}
           size="small"
         >
-          <ToggleButton value="color">
-            {t('settings.cardprint.mode_color')}
-          </ToggleButton>
-          <ToggleButton value="bw">
-            {t('settings.cardprint.mode_bw')}
-          </ToggleButton>
+          <ToggleButton value="color">{t('settings.cardprint.mode_color')}</ToggleButton>
+          <ToggleButton value="bw">{t('settings.cardprint.mode_bw')}</ToggleButton>
         </ToggleButtonGroup>
       </Grid>
 
@@ -260,7 +275,10 @@ const CardImageGenerator = ({ line1 = '', line2 = '' }) => {
             style={{ display: 'block', maxWidth: '100%', height: 'auto' }}
           />
         </Box>
-        <Box sx={{ mt: 1, display: 'flex', gap: 1 }}>
+        <Box sx={{ mt: 1, display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+          <Button variant="outlined" onClick={rotateCard}>
+            {t('settings.cardprint.rotate')}
+          </Button>
           <Button variant="outlined" onClick={() => downloadCard('png')}>
             {t('settings.cardprint.save_png')}
           </Button>

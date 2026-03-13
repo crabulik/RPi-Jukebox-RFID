@@ -339,6 +339,7 @@
       "mode_bw": "S/W",
       "generate": "Karte generieren",
       "preview": "Vorschau",
+      "rotate": "90° drehen",
       "save_png": "Als PNG speichern",
       "save_jpeg": "Als JPEG speichern"
     }
