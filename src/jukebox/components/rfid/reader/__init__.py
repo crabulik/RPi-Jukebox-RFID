@@ -154,6 +154,7 @@ class ReaderRunner(threading.Thread):
             self._timer_thread.start()
         self.publisher = None
         self.topic = f"{plugs.loaded_as(__name__)}.card_id"
+        self.topic_unknown = f"{plugs.loaded_as(__name__)}.card_id_unknown"
         # Ready to go
         self._cancel = threading.Event()
 
@@ -257,6 +258,7 @@ class ReaderRunner(threading.Thread):
                             rfid_card_detect_callbacks.run_callbacks(card_id, RfidCardDetectState.isUnkown)
                             self._logger.info(f"Unknown card: '{card_id}'")
                             self.publisher.send(self.topic, card_id)
+                            self.publisher.send(self.topic_unknown, card_id)
                     elif self._cfg_log_ignored_cards is True:
                         self._logger.debug(f"'Ignoring card id {card_id} due to same-card-delay ({self._cfg_same_id_delay}s)")
                     previous_time = time.time()

@@ -207,7 +207,8 @@
     "display": {
       "unknown-title": "Unknown title",
       "unknown-artist": "Unknown artists",
-      "no-song-in-queue": "No song in queue"
+      "no-song-in-queue": "No song in queue",
+      "unknown-card": "Unknown card"
     },
     "seekbar": {
       "song-position": "Current position"

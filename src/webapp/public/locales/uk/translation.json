@@ -207,7 +207,8 @@
     "display": {
       "unknown-title": "Невідома назва",
       "unknown-artist": "Невідомі виконавці",
-      "no-song-in-queue": "У черзі немає пісні"
+      "no-song-in-queue": "У черзі немає пісні",
+      "unknown-card": "Невідома картка"
     },
     "seekbar": {
       "song-position": "Поточна позиція"

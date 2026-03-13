@@ -15,6 +15,7 @@ const SUBSCRIPTIONS = [
   'host.temperature.cpu',
   'playerstatus',
   'rfid.card_id',
+  'rfid.card_id_unknown',
   'volume.level',
 ];
 

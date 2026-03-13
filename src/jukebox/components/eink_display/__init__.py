@@ -71,16 +71,18 @@ _enabled: bool = False
 # Each entry has: play/pause/stop state labels and the no_title fallback.
 _STRINGS = {
     'en': {
-        'play':     'Playing',
-        'pause':    'Paused',
-        'stop':     'Stopped',
-        'no_title': '---',
+        'play':         'Playing',
+        'pause':        'Paused',
+        'stop':         'Stopped',
+        'no_title':     '---',
+        'unknown_card': 'Unknown card',
     },
     'uk': {
-        'play':     'Грає',
-        'pause':    'Пауза',
-        'stop':     'Зупинено',
-        'no_title': '---',
+        'play':         'Грає',
+        'pause':        'Пауза',
+        'stop':         'Зупинено',
+        'no_title':     '---',
+        'unknown_card': 'Невідома картка',
     },
 }
 
@@ -398,11 +400,14 @@ class DisplayThread(threading.Thread):
         self._cached_ip = ''
         self._last_ip_fetch = 0.0
         self._ip_refresh_interval_sec = 10.0
+        self._unknown_card_id = ''
+        self._unknown_card_shown_at = 0.0
+        self._unknown_card_display_sec = 10
 
     def run(self) -> None:
         logger.info('E-Ink display thread started')
         sub = jukebox.publishing.subscriber.Subscriber(
-            'inproc://PublisherToProxy', ['playerstatus', 'host.connectivity']
+            'inproc://PublisherToProxy', ['playerstatus', 'host.connectivity', 'rfid.card_id_unknown']
         )
         # Wake up periodically so stop-timeout transitions can trigger render updates.
         sub.socket.setsockopt(zmq.RCVTIMEO, 1000)
@@ -432,10 +437,17 @@ class DisplayThread(threading.Thread):
                         self._last_state = state
                         self._last_title = title
                         self._last_artist = artist
+                        self._unknown_card_id = ''
                         changed = True
                         logger.debug(
                             f'E-Ink player update: state={state} title={title!r} artist={artist!r}'
                         )
+
+                elif topic == 'rfid.card_id_unknown' and isinstance(payload, str):
+                    self._unknown_card_id = payload
+                    self._unknown_card_shown_at = time.monotonic()
+                    changed = True
+                    logger.debug(f'E-Ink unknown card: {payload!r}')
 
                 elif topic == 'host.connectivity' and isinstance(payload, dict):
                     wifi = payload.get('wifi', False)
@@ -448,10 +460,18 @@ class DisplayThread(threading.Thread):
 
                 if self._update_status_text_override():
                     changed = True
+                if self._expire_unknown_card():
+                    changed = True
 
                 if changed:
-                    self._render(self._last_state, self._last_title, self._last_artist,
-                                 self._last_wifi, self._last_bluetooth, self._status_text_override)
+                    if self._unknown_card_id:
+                        s = _strings()
+                        self._render(self._last_state, self._unknown_card_id, '',
+                                     self._last_wifi, self._last_bluetooth,
+                                     status_text_override=s['unknown_card'])
+                    else:
+                        self._render(self._last_state, self._last_title, self._last_artist,
+                                     self._last_wifi, self._last_bluetooth, self._status_text_override)
 
             except Exception as e:
                 if self._keep_running:
@@ -483,6 +503,17 @@ class DisplayThread(threading.Thread):
 
         self._status_text_override = new_text
         return new_text != old_text
+
+    def _expire_unknown_card(self) -> bool:
+        """Clear unknown card display after the timeout elapses.
+
+        :returns: True if the state changed (card display was cleared).
+        """
+        if self._unknown_card_id:
+            if (time.monotonic() - self._unknown_card_shown_at) >= self._unknown_card_display_sec:
+                self._unknown_card_id = ''
+                return True
+        return False
 
     def _render(self,
                 state: str,

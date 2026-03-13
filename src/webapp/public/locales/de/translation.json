@@ -207,7 +207,8 @@
     "display": {
       "unknown-title": "Unbekannter Titel",
       "unknown-artist": "Unbekannter Künstler",
-      "no-song-in-queue": "Es wird kein Titel abgespielt"
+      "no-song-in-queue": "Es wird kein Titel abgespielt",
+      "unknown-card": "Unbekannte Karte"
     },
     "seekbar": {
       "song-position": "Aktuelle Position"
