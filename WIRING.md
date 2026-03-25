@@ -122,6 +122,68 @@ If the button LED does NOT have a built-in resistor, add a 220-330 ohm resistor 
 | Play/Pause LED | OFF during boot. ON when jukebox is ready. Flashes once on valid RFID swipe, three times on unknown card. |
 | Stop LED | OFF during boot. ON when jukebox is ready (acts as "system running" indicator). |
 
+## Safe Shutdown Button
+
+A single momentary push button (normally open, no latch) that:
+- **Shuts down** the OS cleanly when the system is running
+- **Restarts** the board when halted-but-still-powered (hardware feature of GPIO 3 / BCM SCL1)
+
+> Note: restart via the button only works when power is still connected after a software shutdown.
+> It does **not** replace a physical power cycle.
+
+### Wiring
+
+```
+Button pin 1 ────── Physical Pin 5  (BCM GPIO 3 / SCL1)
+Button pin 2 ────── Physical Pin 9  (GND)
+```
+
+No external resistor needed — GPIO 3 has an internal pull-up.
+
+```
+Physical Pin    BCM GPIO    Function
+────────────────────────────────────
+5               GPIO3       Shutdown signal input
+9               GND         Button ground
+```
+
+### OS Configuration
+
+**Step 1 — Open the boot config:**
+
+```bash
+sudo nano /boot/firmware/config.txt
+```
+
+> For Raspberry Pi OS older than Bookworm the path is `/boot/config.txt`.
+
+**Step 2 — Add the overlay under the `[all]` / Jukebox Boot Config section:**
+
+The `[all]` section is at the bottom of the file. Add the line after `disable_splash=1`:
+
+```
+[all]
+
+## Jukebox Boot Config
+disable_splash=1
+dtoverlay=gpio-shutdown
+```
+
+The `gpio-shutdown` overlay defaults to GPIO 3 (BCM), which matches our wiring.
+No additional parameters are needed.
+
+**Step 3 — Save and reboot:**
+
+```bash
+# In nano: Ctrl+O  →  Enter  →  Ctrl+X
+sudo reboot
+```
+
+**Step 4 — Verify:**
+
+After reboot, press the button once. The system should cleanly shut down (`sudo poweroff` equivalent).
+Once halted, press the button again — the board restarts.
+
 ## Complete Pin Allocation
 
 ```
@@ -130,9 +192,9 @@ Pin      Function          BCM         Function       Pin
 ─────────────────────────────────────────────────────────────
  1       3.3V [E-Ink]      —           5V              2
  3       (free)            GPIO2       5V              4
- 5       (free)            GPIO3       GND             6  [E-Ink]
+ 5       Shutdown btn      GPIO3       GND             6  [E-Ink]
  7       (free)            GPIO4       GPIO14          8
- 9       (free)            —           GPIO15         10
+ 9       GND [shutdown]    —           GPIO15         10
 11       E-Ink RST         GPIO17      GPIO18         12
 13       RC522 RST         GPIO27      GND            14
 15       RC522 IRQ         GPIO22      GPIO23         16
@@ -150,6 +212,6 @@ Pin      Function          BCM         Function       Pin
 39       GND [buttons]     —           GPIO21         40
 ─────────────────────────────────────────────────────────────
 
-Used: 14 GPIO pins (+ 3 power/ground)
+Used: 15 GPIO pins (+ 4 power/ground)
 Free: 15 GPIO pins remaining
 ```

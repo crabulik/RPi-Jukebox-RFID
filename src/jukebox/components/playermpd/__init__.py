@@ -205,12 +205,11 @@ class PlayerMPD:
             if last_played_folder:
                 # current_folder_status is a dict, but last_played_folder a str
                 self.current_folder_status = self.music_player_status['audio_folder_status'][last_played_folder]
-                # Restore the playlist status in mpd
-                # But what about playback position?
-                self.mpd_client.clear()
-                #  This could fail and cause load fail of entire package:
-                # self.mpd_client.add(last_played_folder)
                 logger.info(f"Last Played Folder: {last_played_folder}")
+            # Always clear MPD queue on startup so the last song is not shown as active
+            # (last_played_folder is reset to '' at line below, so without this clear
+            # the queue would persist across restarts and appear as current song)
+            self.mpd_client.clear()
 
         # Clear last folder played, as we actually did not play any folder yet
         # Needed for second swipe detection

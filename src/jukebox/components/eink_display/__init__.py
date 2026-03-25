@@ -35,17 +35,22 @@ Ukrainian locale requires a Cyrillic-capable font. Recommended:
   sudo apt install fonts-freefont-ttf
 """
 
+import collections
 import glob
+import json
 import logging
 import os
 import sys
 import threading
 import time
+from datetime import datetime, timezone, timedelta
 
 import jukebox.cfghandler
 import jukebox.plugs as plugs
 import jukebox.publishing.subscriber
 import zmq
+
+cfg_cards = jukebox.cfghandler.get_handler('cards')
 
 # Paths to bunny images relative to the repo root (resolved at runtime)
 _IMG_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)),
@@ -76,6 +81,9 @@ _STRINGS = {
         'stop':         'Stopped',
         'no_title':     '---',
         'unknown_card': 'Unknown card',
+        'top_7d':       'Top 3 · 7 days',
+        'top_30d':      'Top 3 · 30 days',
+        'top_no_data':  'No data yet',
     },
     'uk': {
         'play':         'Грає',
@@ -83,6 +91,9 @@ _STRINGS = {
         'stop':         'Зупинено',
         'no_title':     '---',
         'unknown_card': 'Невідома картка',
+        'top_7d':       'Топ 3 · 7 днів',
+        'top_30d':      'Топ 3 · 30 днів',
+        'top_no_data':  'Немає даних',
     },
 }
 
@@ -210,6 +221,133 @@ def _draw_bluetooth_icon(draw, x: int, y: int, size: int = 14) -> None:
 
     # Lower triangle (pointing right-down)
     draw.polygon([(cx, mid_y), (x + size, mid_y + size // 6), (cx, y + size)], outline=0, fill=0)
+
+
+# ---------------------------------------------------------------------------
+# Scan history helpers
+# ---------------------------------------------------------------------------
+
+def _get_folder_name_for_card(card_id: str) -> str:
+    """Return the folder name for a registered card, or the card_id if unresolvable.
+
+    Looks up the card in cfg_cards and extracts the first positional arg,
+    which is the folder path for play_folder cards.
+
+    :param card_id: The RFID card identifier
+    :returns: Basename of the folder path, or card_id as fallback
+    """
+    card_entry = cfg_cards.get(card_id, default=None)
+    if card_entry is None:
+        return card_id
+    args = card_entry.get('args', [])
+    if args:
+        return os.path.basename(str(args[0]).rstrip('/'))
+    kwargs = card_entry.get('kwargs', {}) or {}
+    folder = kwargs.get('folder') or kwargs.get('path')
+    if folder:
+        return os.path.basename(str(folder).rstrip('/'))
+    return card_id
+
+
+def _get_top_scanned(history_file: str, days: int, n: int) -> list:
+    """Read RFID scan history and return the top N registered cards by scan count.
+
+    Only entries with ``is_registered=True`` and within the last ``days`` days
+    (UTC) are counted.
+
+    :param history_file: Path to the JSONL scan history file
+    :param days: Look-back window in days
+    :param n: Maximum number of results to return
+    :returns: List of ``(folder_name, count)`` tuples sorted by count descending
+    """
+    if not history_file or not os.path.exists(history_file):
+        return []
+    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+    counter: collections.Counter = collections.Counter()
+    try:
+        with open(history_file, 'r', encoding='utf-8') as fh:
+            for raw in fh:
+                raw = raw.strip()
+                if not raw:
+                    continue
+                try:
+                    entry = json.loads(raw)
+                except json.JSONDecodeError:
+                    continue
+                if not entry.get('is_registered', False):
+                    continue
+                ts_str = entry.get('timestamp_utc', '')
+                try:
+                    ts = datetime.fromisoformat(ts_str)
+                    if ts < cutoff:
+                        continue
+                except (ValueError, TypeError):
+                    continue
+                card_id = entry.get('card_id', '')
+                if card_id:
+                    counter[card_id] += 1
+    except Exception as exc:
+        logger.warning(f'E-Ink could not read scan history: {exc}')
+        return []
+    return [(_get_folder_name_for_card(cid), cnt) for cid, cnt in counter.most_common(n)]
+
+
+def _build_top_image(epd, days: int, top_list: list):
+    """Build a PIL Image showing the top-scanned cards for the last ``days`` days.
+
+    Layout (landscape 250×122):
+      y=2   header label (bold 16pt)
+      y=22  separator line
+      y=27  item #1
+      y=57  item #2
+      y=87  item #3
+    Each item row: rank (bold) | folder name | scan count (bold, right-aligned).
+
+    :param epd: Initialised EPD driver instance (used for dimensions only)
+    :param days: 7 or 30 — selects the header label from locale strings
+    :param top_list: List of ``(folder_name, count)`` tuples (up to 3)
+    :returns: PIL Image in landscape orientation (250×122)
+    """
+    from PIL import Image, ImageDraw
+
+    draw_w, draw_h = epd.height, epd.width  # landscape: 250×122
+    image = Image.new('1', (draw_w, draw_h), 255)
+    draw = ImageDraw.Draw(image)
+
+    font_header = _load_font(bold=True, size=16)
+    font_rank = _load_font(bold=True, size=15)
+    font_name = _load_font(bold=False, size=15)
+
+    s = _strings()
+    header_key = 'top_7d' if days == 7 else 'top_30d'
+    draw.text((4, 2), s[header_key], font=font_header, fill=0)
+    draw.line([(0, 22), (draw_w, 22)], fill=0, width=1)
+
+    if not top_list:
+        draw.text((4, 40), s['top_no_data'], font=font_name, fill=0)
+        return image
+
+    y = 27
+    for i, (name, count) in enumerate(top_list[:3]):
+        rank_text = f'#{i + 1}'
+        count_text = str(count)
+
+        rank_w = int(draw.textlength(rank_text, font=font_rank)) + 6
+        count_w = int(draw.textlength(count_text, font=font_rank))
+        max_name_w = draw_w - rank_w - count_w - 12
+
+        name_text = name
+        while name_text and draw.textlength(name_text, font=font_name) > max_name_w:
+            name_text = name_text[:-1]
+        if name_text != name:
+            name_text = (name_text[:-2] + '..') if len(name_text) >= 2 else name_text
+
+        draw.text((4, y), rank_text, font=font_rank, fill=0)
+        draw.text((4 + rank_w, y), name_text, font=font_name, fill=0)
+        draw.text((draw_w - count_w - 4, y), count_text, font=font_rank, fill=0)
+        y += 30
+
+    return image
 
 
 # ---------------------------------------------------------------------------
@@ -384,7 +522,8 @@ class DisplayThread(threading.Thread):
     - Display stays awake between updates
     """
 
-    def __init__(self, epd, show_ip_after_stop_sec: int = 60):
+    def __init__(self, epd, show_ip_after_stop_sec: int = 60,
+                 top_after_stop_sec: int = 60, scan_history_file: str = ''):
         super().__init__(name='EinkDisplay', daemon=True)
         self._epd = epd
         self._keep_running = True
@@ -403,6 +542,12 @@ class DisplayThread(threading.Thread):
         self._unknown_card_id = ''
         self._unknown_card_shown_at = 0.0
         self._unknown_card_display_sec = 10
+        # Top-stats mode
+        self._top_after_stop_sec = max(1, int(top_after_stop_sec))
+        self._scan_history_file = scan_history_file
+        self._top_mode = False
+        self._top_days = 7   # current view: 7 or 30
+        self._top_show_count = 0  # increments each activation; odd→7d, even→30d
 
     def run(self) -> None:
         logger.info('E-Ink display thread started')
@@ -462,6 +607,8 @@ class DisplayThread(threading.Thread):
                     changed = True
                 if self._expire_unknown_card():
                     changed = True
+                if self._update_top_mode():
+                    changed = True
 
                 if changed:
                     if self._unknown_card_id:
@@ -469,6 +616,8 @@ class DisplayThread(threading.Thread):
                         self._render(self._last_state, self._unknown_card_id, '',
                                      self._last_wifi, self._last_bluetooth,
                                      status_text_override=s['unknown_card'])
+                    elif self._top_mode:
+                        self._render_top()
                     else:
                         self._render(self._last_state, self._last_title, self._last_artist,
                                      self._last_wifi, self._last_bluetooth, self._status_text_override)
@@ -515,6 +664,17 @@ class DisplayThread(threading.Thread):
                 return True
         return False
 
+    def _do_refresh(self, image) -> None:
+        """Apply full or partial refresh for the given image and advance the counter."""
+        use_full = (self._render_count % FULL_REFRESH_INTERVAL == 0)
+        if use_full:
+            logger.debug(f'E-Ink full refresh (count={self._render_count})')
+            _full_refresh(self._epd, image)
+        else:
+            logger.debug(f'E-Ink partial refresh (count={self._render_count})')
+            _partial_refresh(self._epd, image)
+        self._render_count += 1
+
     def _render(self,
                 state: str,
                 title: str,
@@ -522,25 +682,55 @@ class DisplayThread(threading.Thread):
                 wifi: bool,
                 bluetooth: bool,
                 status_text_override: str = '') -> None:
-        """Render one frame, choosing full or partial refresh as appropriate."""
+        """Render one player-status frame."""
         try:
-            image = _build_status_image(self._epd,
-                                        state,
-                                        title,
-                                        artist,
-                                        wifi,
-                                        bluetooth,
+            image = _build_status_image(self._epd, state, title, artist,
+                                        wifi, bluetooth,
                                         status_text_override=status_text_override)
-            use_full = (self._render_count % FULL_REFRESH_INTERVAL == 0)
-            if use_full:
-                logger.debug(f'E-Ink full refresh (count={self._render_count})')
-                _full_refresh(self._epd, image)
-            else:
-                logger.debug(f'E-Ink partial refresh (count={self._render_count})')
-                _partial_refresh(self._epd, image)
-            self._render_count += 1
+            self._do_refresh(image)
         except Exception as e:
             logger.error(f'E-Ink render error: {e.__class__.__name__}: {e}')
+
+    def _render_top(self) -> None:
+        """Render the top-scanned-cards screen for the current time window."""
+        try:
+            top_data = _get_top_scanned(self._scan_history_file, self._top_days, 3)
+            image = _build_top_image(self._epd, self._top_days, top_data)
+            self._do_refresh(image)
+            logger.debug(f'E-Ink top-stats rendered: {self._top_days}d → {top_data}')
+        except Exception as e:
+            logger.error(f'E-Ink top-stats render error: {e.__class__.__name__}: {e}')
+
+    def _update_top_mode(self) -> bool:
+        """Manage entry and exit of the top-stats display mode.
+
+        Activates after ``_top_after_stop_sec`` of stopped state.
+        The time window alternates per activation: odd → 7 days, even → 30 days.
+        Deactivates immediately when the player leaves the stopped state.
+
+        :returns: True if a re-render is needed.
+        """
+        if self._last_state != 'stop' or self._stopped_since is None:
+            if self._top_mode:
+                self._top_mode = False
+                return True
+            return False
+
+        stopped_for = time.monotonic() - self._stopped_since
+        if stopped_for < self._top_after_stop_sec:
+            if self._top_mode:
+                self._top_mode = False
+                return True
+            return False
+
+        # Should be in top mode — activate on first crossing of the threshold
+        if not self._top_mode:
+            self._top_show_count += 1
+            self._top_days = 7 if self._top_show_count % 2 == 1 else 30
+            self._top_mode = True
+            return True
+
+        return False
 
     def stop(self) -> None:
         self._keep_running = False
@@ -626,6 +816,19 @@ def initialize() -> None:
     globals()['_stop_ip_after_sec'] = stop_ip_after_sec
     logger.info(f'E-Ink stop-to-IP timeout: {stop_ip_after_sec}s')
 
+    top_after_stop_sec = cfg.setndefault('eink_display', 'top_after_stop_sec', value=60)
+    try:
+        top_after_stop_sec = max(1, int(top_after_stop_sec))
+    except (TypeError, ValueError):
+        logger.warning(f"Invalid eink_display.top_after_stop_sec={top_after_stop_sec!r}, using 60")
+        top_after_stop_sec = 60
+    globals()['_top_after_stop_sec'] = top_after_stop_sec
+
+    scan_history_file = cfg.getn('rfid', 'scan_history_file',
+                                 default='../../shared/settings/rfid_scan_history.jsonl')
+    globals()['_scan_history_file'] = scan_history_file
+    logger.info(f'E-Ink top-stats: after={top_after_stop_sec}s history={scan_history_file}')
+
     try:
         _ensure_waveshare_on_path()
 
@@ -665,7 +868,12 @@ def finalize() -> None:
         return
 
     stop_ip_after_sec = globals().get('_stop_ip_after_sec', 60)
-    _display_thread = DisplayThread(epd, show_ip_after_stop_sec=stop_ip_after_sec)
+    top_after_stop_sec = globals().get('_top_after_stop_sec', 60)
+    scan_history_file = globals().get('_scan_history_file', '')
+    _display_thread = DisplayThread(epd,
+                                    show_ip_after_stop_sec=stop_ip_after_sec,
+                                    top_after_stop_sec=top_after_stop_sec,
+                                    scan_history_file=scan_history_file)
     _display_thread.start()
     logger.info('E-Ink display subscriber thread started')
 

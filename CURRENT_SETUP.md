@@ -12,6 +12,7 @@ This document contains information regarding the current hardware setup of the p
 - Speakers connected via mini-Jack to Mini-Jack cable to the Raspberry Pi 3
 - EInk Display: Waveshare 250x122, 2.13inch E-Ink display HAT for Raspberry Pi
 - Two Hardware buttons for play/pause and stop functions. Each button has a light indicator.
+- Safe shutdown button (momentary, Pin 5 / GPIO 3 + Pin 9 / GND)
 
 ## Main Use Cases
 
